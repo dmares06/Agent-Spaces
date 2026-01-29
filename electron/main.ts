@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { autoUpdater } from 'electron-updater';
 import { initDatabase, closeDatabase } from './database/db.js';
 import { registerHandlers } from './ipc/handlers.js';
 import { setMainWindow, killAllTerminals } from './services/terminalService.js';
@@ -11,6 +12,54 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Configure auto-updater
+autoUpdater.autoDownload = false; // Ask user before downloading
+autoUpdater.autoInstallOnAppQuit = true; // Install on quit
+
+// Auto-updater event handlers
+autoUpdater.on('checking-for-update', () => {
+  console.log('[AutoUpdater] Checking for updates...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('[AutoUpdater] Update available:', info.version);
+  if (mainWindow) {
+    mainWindow.webContents.send('update-available', info);
+  }
+});
+
+autoUpdater.on('update-not-available', () => {
+  console.log('[AutoUpdater] No updates available');
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('[AutoUpdater] Error:', err);
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  console.log(`[AutoUpdater] Download progress: ${progress.percent}%`);
+  if (mainWindow) {
+    mainWindow.webContents.send('update-download-progress', progress);
+  }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('[AutoUpdater] Update downloaded:', info.version);
+  if (mainWindow) {
+    mainWindow.webContents.send('update-downloaded', info);
+  }
+});
+
+function checkForUpdates() {
+  console.log('[AutoUpdater] Starting update check...');
+  autoUpdater.checkForUpdates();
+
+  // Check for updates every 4 hours
+  setInterval(() => {
+    autoUpdater.checkForUpdates();
+  }, 4 * 60 * 60 * 1000);
+}
 
 // Auto-reload Electron when main process files change (dev only)
 if (isDev) {
@@ -81,6 +130,11 @@ app.whenReady().then(() => {
 
   // Set mainWindow reference for terminal service
   setMainWindow(mainWindow);
+
+  // Auto-update check (production only)
+  if (!isDev) {
+    checkForUpdates();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

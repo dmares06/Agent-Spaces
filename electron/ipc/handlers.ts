@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, BrowserWindow, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import * as db from '../database/db.js';
 import { scanWorkflowFolder } from '../services/workflowScanner.js';
 import * as claudeService from '../services/claudeService.js';
@@ -1894,6 +1895,41 @@ Take screenshots to show your progress.`;
     } catch (error: any) {
       console.error('[IPC] canvas:delete error:', error);
       throw new Error(error.message);
+    }
+  });
+
+  // ===== Auto-Update Handlers =====
+
+  ipcMain.handle('updater:check-for-updates', async () => {
+    try {
+      console.log('[IPC] Checking for updates...');
+      const result = await autoUpdater.checkForUpdates();
+      return { success: true, updateInfo: result?.updateInfo };
+    } catch (error: any) {
+      console.error('[IPC] updater:check-for-updates error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('updater:download-update', async () => {
+    try {
+      console.log('[IPC] Downloading update...');
+      await autoUpdater.downloadUpdate();
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] updater:download-update error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('updater:quit-and-install', async () => {
+    try {
+      console.log('[IPC] Quitting and installing update...');
+      autoUpdater.quitAndInstall();
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] updater:quit-and-install error:', error);
+      return { success: false, error: error.message };
     }
   });
 

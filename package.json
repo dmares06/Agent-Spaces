@@ -53,6 +53,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "diff": "^8.0.3",
+    "electron-updater": "^6.7.3",
     "lucide-react": "^0.469.0",
     "node-pty": "^1.1.0",
     "openai": "^6.16.0",
@@ -79,6 +80,15 @@
     ],
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "kimberlymares",
+      "repo": "agent-workspace"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kimberlymares/agent-workspace.git"
   }
 }
