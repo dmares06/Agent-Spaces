@@ -419,3 +419,14 @@ export interface PersonalTask {
   last_modified_by_agent_id?: string; // Last agent that modified it
   last_notified_at?: string;      // Last notification timestamp
 }
+
+// Canvas Types
+export interface SavedCanvas {
+  id: string;
+  workspace_id: string | null;
+  name: string;
+  thumbnail: string | null;
+  data: string; // JSON stringified
+  created_at: string;
+  updated_at: string;
+}

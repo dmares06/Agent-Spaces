@@ -10,10 +10,9 @@ interface ChatInputProps {
   placeholder?: string;
   workspaceId?: string;
   onTerminalToggle?: () => void;
-  hasWorkspaceFolder?: boolean;
 }
 
-export default function ChatInput({ onSend, disabled, placeholder, workspaceId, onTerminalToggle, hasWorkspaceFolder }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, placeholder, workspaceId, onTerminalToggle }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -235,19 +234,9 @@ export default function ChatInput({ onSend, disabled, placeholder, workspaceId, 
         {onTerminalToggle && (
           <button
             type="button"
-            onClick={() => {
-              if (hasWorkspaceFolder) {
-                onTerminalToggle();
-              } else {
-                alert('Please select a workspace with a folder path to use the terminal.');
-              }
-            }}
+            onClick={onTerminalToggle}
             disabled={disabled}
-            className={`p-3 rounded-xl transition-colors ${
-              hasWorkspaceFolder
-                ? 'border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed'
-                : 'border border-border opacity-50 cursor-not-allowed'
-            }`}
+            className="p-3 rounded-xl transition-colors border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
             title="Toggle Terminal (Ctrl+`)"
           >
             <Terminal size={20} className="text-foreground" />

@@ -1852,5 +1852,50 @@ Take screenshots to show your progress.`;
     }
   });
 
+  // ===== Canvas Handlers =====
+
+  ipcMain.handle('canvas:save', async (_event, canvas: {
+    id: string;
+    workspace_id: string | null;
+    name: string;
+    data: string;
+    thumbnail: string | null;
+  }) => {
+    try {
+      const { id, workspace_id, name, data, thumbnail } = canvas;
+      return db.canvasSave(id, workspace_id, name, data, thumbnail);
+    } catch (error: any) {
+      console.error('[IPC] canvas:save error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('canvas:list', async (_event, workspaceId: string | null) => {
+    try {
+      return db.canvasList(workspaceId);
+    } catch (error: any) {
+      console.error('[IPC] canvas:list error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('canvas:get', async (_event, canvasId: string) => {
+    try {
+      return db.canvasGet(canvasId);
+    } catch (error: any) {
+      console.error('[IPC] canvas:get error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('canvas:delete', async (_event, canvasId: string) => {
+    try {
+      return db.canvasDelete(canvasId);
+    } catch (error: any) {
+      console.error('[IPC] canvas:delete error:', error);
+      throw new Error(error.message);
+    }
+  });
+
   console.log('[IPC] All handlers registered');
 }

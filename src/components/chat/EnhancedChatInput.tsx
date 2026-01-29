@@ -23,7 +23,6 @@ interface EnhancedChatInputProps {
   workspaceId?: string;
   currentModel: string;
   onModelChange: (modelId: string) => void;
-  hasWorkspaceFolder?: boolean;
 }
 
 export default function EnhancedChatInput({
@@ -33,7 +32,6 @@ export default function EnhancedChatInput({
   workspaceId,
   currentModel,
   onModelChange,
-  hasWorkspaceFolder,
 }: EnhancedChatInputProps) {
   const [message, setMessage] = useState('');
   const [browserMode, setBrowserMode] = useState(false);

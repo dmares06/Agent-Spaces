@@ -117,6 +117,17 @@ CREATE TABLE IF NOT EXISTS tasks (
   FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS canvases (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT,
+  name TEXT NOT NULL,
+  thumbnail TEXT,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY,
   chat_id TEXT,
@@ -178,6 +189,8 @@ CREATE INDEX IF NOT EXISTS idx_mcp_servers_workspace ON mcp_servers(workspace_id
 CREATE INDEX IF NOT EXISTS idx_hooks_workspace ON hooks(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_chat ON tasks(chat_id);
+CREATE INDEX IF NOT EXISTS idx_canvases_workspace ON canvases(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_canvases_created ON canvases(created_at);
 CREATE INDEX IF NOT EXISTS idx_attachments_chat ON attachments(chat_id);
 CREATE INDEX IF NOT EXISTS idx_session_rules_chat ON session_rules(chat_id);
 CREATE INDEX IF NOT EXISTS idx_approval_requests_chat ON approval_requests(chat_id);
@@ -1361,4 +1374,65 @@ export function getPersonalTaskStats(): {
   });
 
   return stats;
+}
+
+// ===== Canvas Operations =====
+
+export interface SavedCanvas {
+  id: string;
+  workspace_id: string | null;
+  name: string;
+  thumbnail: string | null;
+  data: string; // JSON stringified
+  created_at: string;
+  updated_at: string;
+}
+
+export function canvasSave(
+  id: string,
+  workspaceId: string | null,
+  name: string,
+  data: string,
+  thumbnail: string | null
+): SavedCanvas {
+  const db = getDatabase();
+  const timestamp = now();
+
+  const stmt = db.prepare(`
+    INSERT INTO canvases (id, workspace_id, name, data, thumbnail, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      data = excluded.data,
+      thumbnail = excluded.thumbnail,
+      updated_at = excluded.updated_at
+  `);
+
+  stmt.run(id, workspaceId, name, data, thumbnail, timestamp, timestamp);
+
+  return canvasGet(id)!;
+}
+
+export function canvasList(workspaceId: string | null): SavedCanvas[] {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, workspace_id, name, thumbnail, created_at, updated_at
+    FROM canvases
+    WHERE workspace_id IS ? OR workspace_id = ?
+    ORDER BY updated_at DESC
+  `);
+  return stmt.all(workspaceId, workspaceId) as SavedCanvas[];
+}
+
+export function canvasGet(id: string): SavedCanvas | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM canvases WHERE id = ?');
+  return stmt.get(id) as SavedCanvas | null;
+}
+
+export function canvasDelete(id: string): { success: boolean } {
+  const db = getDatabase();
+  const stmt = db.prepare('DELETE FROM canvases WHERE id = ?');
+  stmt.run(id);
+  return { success: true };
 }

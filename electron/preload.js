@@ -337,6 +337,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeAllListeners('personal-task-deleted');
     },
   },
+
+  // Canvas operations
+  canvas: {
+    save: (canvas) => ipcRenderer.invoke('canvas:save', canvas),
+    list: (workspaceId) => ipcRenderer.invoke('canvas:list', workspaceId),
+    get: (canvasId) => ipcRenderer.invoke('canvas:get', canvasId),
+    delete: (canvasId) => ipcRenderer.invoke('canvas:delete', canvasId),
+  },
 });
 
 console.log('[Preload] electronAPI exposed to renderer');

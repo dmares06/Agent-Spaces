@@ -59,16 +59,12 @@ export default function WorkspacePage() {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.ctrlKey && e.key === '`') {
         e.preventDefault();
-        if (activeWorkspace?.folder_path) {
-          setShowTerminal((prev) => !prev);
-        } else {
-          alert('Please select a workspace with a folder path to use the terminal.');
-        }
+        setShowTerminal((prev) => !prev);
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeWorkspace?.folder_path]);
+  }, []);
 
   useEffect(() => {
     loadWorkspaces();

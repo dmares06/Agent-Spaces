@@ -14,7 +14,6 @@ interface ChatPanelProps {
   workspaceId: string;
   onOpenSettings: () => void;
   onChatUpdated?: () => void;
-  hasWorkspaceFolder?: boolean;
 }
 
 interface StreamingMessage {
@@ -22,7 +21,7 @@ interface StreamingMessage {
   thinkingContent: string;
 }
 
-export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUpdated, hasWorkspaceFolder }: ChatPanelProps) {
+export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUpdated }: ChatPanelProps) {
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -404,7 +403,6 @@ export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUp
         workspaceId={workspaceId}
         currentModel={currentModel}
         onModelChange={setCurrentModel}
-        hasWorkspaceFolder={hasWorkspaceFolder}
       />
 
       {/* Task Creation Modal */}

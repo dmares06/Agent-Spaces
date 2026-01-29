@@ -211,6 +211,18 @@ export interface ElectronAPI {
     offTaskUpdated: () => void;
     offTaskDeleted: () => void;
   };
+  canvas: {
+    save: (canvas: {
+      id: string;
+      workspace_id: string | null;
+      name: string;
+      data: string;
+      thumbnail: string | null;
+    }) => Promise<any>;
+    list: (workspaceId: string | null) => Promise<any[]>;
+    get: (canvasId: string) => Promise<any>;
+    delete: (canvasId: string) => Promise<{ success: boolean }>;
+  };
 }
 
 declare global {

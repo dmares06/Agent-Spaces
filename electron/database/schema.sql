@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS tasks (
   FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
 );
 
+-- Canvases (for CanvasPanel drawing/note-taking)
+CREATE TABLE IF NOT EXISTS canvases (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT,
+  name TEXT NOT NULL,
+  thumbnail TEXT,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
 -- Execution Logs (for progress tracking)
 CREATE TABLE IF NOT EXISTS execution_logs (
   id TEXT PRIMARY KEY,
@@ -143,5 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_skills_workspace ON skills(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_workspace ON mcp_servers(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_hooks_workspace ON hooks(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_canvases_workspace ON canvases(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_canvases_created ON canvases(created_at);
 CREATE INDEX IF NOT EXISTS idx_execution_logs_chat ON execution_logs(chat_id);
 CREATE INDEX IF NOT EXISTS idx_execution_logs_task ON execution_logs(task_id);
