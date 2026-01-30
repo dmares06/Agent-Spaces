@@ -94,7 +94,7 @@ export default function TerminalTab({
 
       try {
         // Create the terminal session first
-        const sessionId = await electronAPI.terminal.create(workspacePath);
+        const sessionId = await electronAPI.terminal.create(workspacePath || process.env.HOME || '~');
         console.log('[TerminalTab] Session created:', sessionId, 'for tab:', tabId);
         sessionIdRef.current = sessionId;
 

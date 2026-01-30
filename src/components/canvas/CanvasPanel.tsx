@@ -82,12 +82,15 @@ export default function CanvasPanel({
     setActiveCanvasIndex(index);
     const targetCanvas = updatedCanvases[index];
 
+    // Clear current shapes
+    const currentShapeIds = Array.from(editor.getCurrentPageShapeIds());
+    if (currentShapeIds.length > 0) {
+      editor.deleteShapes(currentShapeIds);
+    }
+
     // Load target canvas shapes
-    if (targetCanvas.editorState?.shapes) {
-      editor.deleteShapes(editor.getCurrentPageShapeIds());
+    if (targetCanvas.editorState?.shapes && targetCanvas.editorState.shapes.length > 0) {
       editor.createShapes(targetCanvas.editorState.shapes);
-    } else {
-      editor.deleteShapes(editor.getCurrentPageShapeIds());
     }
   }
 
@@ -108,7 +111,10 @@ export default function CanvasPanel({
     if (openCanvases.length === 1) {
       // Can't close last canvas, just clear it
       if (editor) {
-        editor.deleteShapes(editor.getCurrentPageShapeIds());
+        const currentShapeIds = Array.from(editor.getCurrentPageShapeIds());
+        if (currentShapeIds.length > 0) {
+          editor.deleteShapes(currentShapeIds);
+        }
       }
       setOpenCanvases([{ id: null, name: 'Untitled Canvas', editorState: { shapes: [] } }]);
       setActiveCanvasIndex(0);
@@ -125,11 +131,12 @@ export default function CanvasPanel({
       // Load the new active canvas
       const targetCanvas = updated[newIndex];
       if (editor) {
-        if (targetCanvas.editorState?.shapes) {
-          editor.deleteShapes(editor.getCurrentPageShapeIds());
+        const currentShapeIds = Array.from(editor.getCurrentPageShapeIds());
+        if (currentShapeIds.length > 0) {
+          editor.deleteShapes(currentShapeIds);
+        }
+        if (targetCanvas.editorState?.shapes && targetCanvas.editorState.shapes.length > 0) {
           editor.createShapes(targetCanvas.editorState.shapes);
-        } else {
-          editor.deleteShapes(editor.getCurrentPageShapeIds());
         }
       }
     } else if (index < activeCanvasIndex) {
@@ -225,7 +232,10 @@ export default function CanvasPanel({
   // Clear shapes (not delete canvas)
   function handleClearShapes() {
     if (editor && confirm('Clear all shapes? This cannot be undone.')) {
-      editor.deleteShapes(editor.getCurrentPageShapeIds());
+      const currentShapeIds = Array.from(editor.getCurrentPageShapeIds());
+      if (currentShapeIds.length > 0) {
+        editor.deleteShapes(currentShapeIds);
+      }
     }
   }
 
@@ -309,35 +319,20 @@ export default function CanvasPanel({
   };
 
   // Click-to-type handler
-  function handleCanvasClick(e: React.MouseEvent) {
+  function handleCanvasClick(_e: React.MouseEvent) {
     if (!quickTextMode || !editor) return;
 
     // Don't interfere with tldraw's own click handling on shapes
-    const target = e.target as HTMLElement;
+    const target = _e.target as HTMLElement;
     if (!target.classList.contains('tl-canvas')) return;
 
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Create text shape at click position
-    const textShapeId = editor.createShapes([{
-      type: 'text',
-      x: x,
-      y: y,
-      props: {
-        text: '',
-        size: 'm',
-        font: 'sans',
-      },
-    }]);
-
-    // Immediately start editing
-    if (textShapeId && textShapeId.length > 0) {
-      editor.setSelectedShapes([textShapeId[0]]);
-      editor.setEditingShape(textShapeId[0]);
+    // Activate text tool for quick text creation
+    try {
+      editor.setCurrentTool('text');
+      // Note: tldraw will handle the text creation after tool is set
+      // User can click to place the text
+    } catch (error) {
+      console.error('Failed to activate text tool:', error);
     }
   }
 

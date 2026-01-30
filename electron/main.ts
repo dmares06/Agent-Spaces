@@ -63,7 +63,7 @@ function checkForUpdates() {
 
 // Auto-reload Electron when main process files change (dev only)
 if (isDev) {
-  import('electron-reloader').then((module) => {
+  import('electron-reloader').then((module: any) => {
     module.default(import.meta, {
       debug: false,
       watchRenderer: false, // Vite handles renderer hot reload
@@ -76,7 +76,7 @@ if (isDev) {
       ],
     });
     console.log('[Main] electron-reloader initialized');
-  }).catch((err) => {
+  }).catch((err: any) => {
     console.log('[Main] electron-reloader not available:', err);
   });
 }

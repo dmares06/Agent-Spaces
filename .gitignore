@@ -40,9 +40,10 @@ lerna-debug.log*
 # Electron
 *.cache
 
-# Database (if you want to exclude local database)
-# *.db
-# *.sqlite
+# Database (exclude all databases to be safe)
+*.db
+*.sqlite
+*.db-journal
 
 # macOS
 .AppleDouble

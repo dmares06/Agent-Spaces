@@ -14,7 +14,7 @@ interface KanbanColumnProps {
 }
 
 export default function KanbanColumn({
-  id,
+  id: _id,
   title,
   description,
   color,
