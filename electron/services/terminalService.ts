@@ -18,34 +18,54 @@ export function setMainWindow(window: BrowserWindow | null): void {
 
 export function createTerminal(workspacePath?: string): string {
   const id = randomUUID();
-  const shell = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'zsh';
 
-  console.log('[Terminal] Creating terminal session:', id, 'in', workspacePath);
+  // Use bash instead of zsh - more reliable in Electron
+  const shell = process.platform === 'win32'
+    ? 'powershell.exe'
+    : '/bin/bash';
 
-  const ptyProcess = pty.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols: 80,
-    rows: 24,
-    cwd: workspacePath || process.env.HOME || '/',
-    env: process.env as Record<string, string>,
-  });
+  const cwd = workspacePath || process.env.HOME || process.cwd();
 
-  ptyProcess.onData((data) => {
-    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-      mainWindowRef.webContents.send('terminal-output', { id, data });
-    }
-  });
+  // Args to make shell a login shell
+  const shellArgs = process.platform === 'win32' ? [] : ['--login'];
 
-  ptyProcess.onExit(({ exitCode }) => {
-    console.log('[Terminal] Session exited:', id, 'with code:', exitCode);
-    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-      mainWindowRef.webContents.send('terminal-exit', { id, exitCode });
-    }
-    sessions.delete(id);
-  });
+  console.log('[Terminal] Creating terminal session:', id);
+  console.log('[Terminal] Shell:', shell, 'Args:', shellArgs);
+  console.log('[Terminal] CWD:', cwd);
+  console.log('[Terminal] ENV keys:', Object.keys(process.env).length);
 
-  sessions.set(id, { id, pty: ptyProcess, workspacePath });
-  return id;
+  try {
+    const ptyProcess = pty.spawn(shell, shellArgs, {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: cwd,
+      env: process.env as Record<string, string>,
+    });
+
+    console.log('[Terminal] PTY process spawned successfully');
+
+    ptyProcess.onData((data) => {
+      console.log('[Terminal] Received data for session:', id, 'length:', data.length);
+      if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+        mainWindowRef.webContents.send('terminal-output', { id, data });
+      }
+    });
+
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      console.error('[Terminal] Session exited:', id, 'exitCode:', exitCode, 'signal:', signal);
+      if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+        mainWindowRef.webContents.send('terminal-exit', { id, exitCode });
+      }
+      sessions.delete(id);
+    });
+
+    sessions.set(id, { id, pty: ptyProcess, workspacePath: cwd });
+    return id;
+  } catch (error) {
+    console.error('[Terminal] Failed to create terminal:', error);
+    throw error;
+  }
 }
 
 export function writeToTerminal(id: string, data: string): void {

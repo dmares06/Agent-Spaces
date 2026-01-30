@@ -32,15 +32,17 @@ export default function TerminalTab({
       console.log('[TerminalTab] Already initialized, skipping:', tabId);
       return;
     }
-    initializedRef.current = true;
 
     console.log('[TerminalTab] Initializing tab:', tabId);
+    initializedRef.current = true;
 
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       allowProposedApi: true,
+      // Force canvas renderer (more compatible than WebGL for Electron)
+      rendererType: 'canvas',
       theme: {
         background: '#1a1a1a',
         foreground: '#e5e5e5',
@@ -73,6 +75,9 @@ export default function TerminalTab({
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    // Write welcome message to verify rendering
+    term.write('\x1b[90mInitializing terminal...\x1b[0m\r\n');
+
     // Resize observer
     const resizeObserver = new ResizeObserver(() => {
       if (fitAddonRef.current && xtermRef.current) {
@@ -94,16 +99,19 @@ export default function TerminalTab({
 
       try {
         // Create the terminal session first
-        const sessionId = await electronAPI.terminal.create(workspacePath || process.env.HOME || '~');
+        // Backend will handle default to HOME if workspacePath is undefined
+        const sessionId = await electronAPI.terminal.create(workspacePath);
         console.log('[TerminalTab] Session created:', sessionId, 'for tab:', tabId);
         sessionIdRef.current = sessionId;
 
         // Register callbacks for this specific session
         electronAPI.terminal.registerOutputCallback(sessionId, (data) => {
+          console.log('[TerminalTab] Received output for session:', sessionId, 'length:', data.data.length);
           term.write(data.data);
         });
 
         electronAPI.terminal.registerExitCallback(sessionId, (data) => {
+          console.log('[TerminalTab] Session exited:', sessionId, 'code:', data.exitCode);
           term.write(`\r\n\x1b[90m[Process exited with code ${data.exitCode}]\x1b[0m\r\n`);
         });
 
@@ -116,6 +124,12 @@ export default function TerminalTab({
 
         // Send initial size
         electronAPI.terminal.resize(sessionId, term.cols, term.rows);
+
+        // Focus terminal after a brief delay
+        setTimeout(() => {
+          fitAddon.fit();
+          term.focus();
+        }, 200);
 
         // Run initial command if provided
         if (initialCommand) {
@@ -162,7 +176,11 @@ export default function TerminalTab({
     <div
       ref={terminalRef}
       className={`h-full w-full ${isActive ? 'block' : 'hidden'}`}
-      style={{ padding: '8px' }}
+      style={{
+        padding: '8px',
+        overflow: 'hidden',
+        backgroundColor: '#1a1a1a'
+      }}
     />
   );
 }
