@@ -5,6 +5,7 @@ import { autoUpdater } from 'electron-updater';
 import { initDatabase, closeDatabase } from './database/db.js';
 import { registerHandlers } from './ipc/handlers.js';
 import { setMainWindow, killAllTerminals } from './services/terminalService.js';
+import { initializeScheduler, stopAllJobs } from './services/schedulerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,14 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Single instance lock - prevent multiple app windows
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log('[Main] Another instance is already running, quitting...');
+  app.quit();
+}
 
 // Configure auto-updater
 autoUpdater.autoDownload = false; // Ask user before downloading
@@ -100,7 +109,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    // Dev tools can be opened manually with Cmd+Option+I (Mac) or Ctrl+Shift+I (Windows/Linux)
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -109,6 +118,14 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+// Handle second instance - focus existing window
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
 
 app.whenReady().then(() => {
   console.log('[Main] App is ready');
@@ -131,8 +148,20 @@ app.whenReady().then(() => {
   // Set mainWindow reference for terminal service
   setMainWindow(mainWindow);
 
-  // Auto-update check (production only)
+  // Initialize scheduler service
+  try {
+    initializeScheduler();
+    console.log('[Main] Scheduler service initialized');
+  } catch (error) {
+    console.error('[Main] Failed to initialize scheduler service:', error);
+  }
+
+  // Open at login (production only) - keeps the app persistent
   if (!isDev) {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      openAsHidden: false,
+    });
     checkForUpdates();
   }
 
@@ -152,6 +181,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   console.log('[Main] App quitting, closing database');
   killAllTerminals();
+  stopAllJobs();
   closeDatabase();
 });
 

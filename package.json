@@ -51,9 +51,11 @@
     "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^11.7.0",
     "clsx": "^2.1.1",
+    "croner": "^10.0.1",
     "date-fns": "^4.1.0",
     "diff": "^8.0.3",
     "electron-updater": "^6.7.3",
+    "grammy": "^1.39.3",
     "lucide-react": "^0.469.0",
     "node-pty": "^1.1.0",
     "openai": "^6.16.0",
@@ -83,12 +85,12 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "kimberlymares",
-      "repo": "agent-workspace"
+      "owner": "dmares06",
+      "repo": "Agent-Spaces"
     }
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kimberlymares/agent-workspace.git"
+    "url": "https://github.com/dmares06/Agent-Spaces.git"
   }
 }
