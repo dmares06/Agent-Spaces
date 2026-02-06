@@ -85,6 +85,39 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
       required: ['path'],
     },
   },
+  {
+    name: 'create_personal_task',
+    description:
+      'Create a personal task on the user\'s Kanban board. Use this when the user asks you to add a task, todo, reminder, or item to their personal task list. The task will appear immediately in the Personal Tasks panel.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: {
+          type: 'string',
+          description: 'The title of the personal task (required)',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional detailed description of the task',
+        },
+        priority: {
+          type: 'string',
+          enum: ['low', 'medium', 'high'],
+          description: 'Priority level: low, medium, or high (default: medium)',
+        },
+        status: {
+          type: 'string',
+          enum: ['todo', 'working', 'completed'],
+          description: 'Initial status: todo (To Do), working (In Progress), or completed (Done). Default: todo',
+        },
+        due_date: {
+          type: 'string',
+          description: 'Optional due date in YYYY-MM-DD format (e.g., "2026-02-10")',
+        },
+      },
+      required: ['title'],
+    },
+  },
 ];
 
 // Browser automation tools (enabled when browserMode is true)
@@ -188,8 +221,9 @@ export function getToolsForAgent(options?: {
   tasksEnabled?: boolean;
   filesEnabled?: boolean;
   browserMode?: boolean;
+  personalTasksEnabled?: boolean;
 }): Anthropic.Tool[] {
-  const { tasksEnabled = true, filesEnabled = true, browserMode = false } = options || {};
+  const { tasksEnabled = true, filesEnabled = true, browserMode = false, personalTasksEnabled = true } = options || {};
   const tools: Anthropic.Tool[] = [];
 
   if (tasksEnabled) {
@@ -203,6 +237,12 @@ export function getToolsForAgent(options?: {
     tools.push(
       AGENT_TOOLS.find((t) => t.name === 'attach_file')!,
       AGENT_TOOLS.find((t) => t.name === 'read_file')!
+    );
+  }
+
+  if (personalTasksEnabled) {
+    tools.push(
+      AGENT_TOOLS.find((t) => t.name === 'create_personal_task')!
     );
   }
 

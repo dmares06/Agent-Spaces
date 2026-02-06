@@ -30,6 +30,7 @@ export default function WorkspacePage() {
   const [globalAgents, setGlobalAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [globalChats, setGlobalChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -69,6 +70,7 @@ export default function WorkspacePage() {
   useEffect(() => {
     loadWorkspaces();
     loadGlobalAgents();
+    loadGlobalChats();
     checkApiKey();
     loadDefaultAgent();
   }, []);
@@ -87,7 +89,7 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (activeWorkspace) {
       loadAgents(activeWorkspace.id);
-      loadChats(activeWorkspace.id);
+      // All chats are now loaded via loadGlobalChats(), no need to load workspace-specific
       setSelectedAgent(null);
       setSelectedChat(null);
     } else {
@@ -98,12 +100,10 @@ export default function WorkspacePage() {
 
   // Listen for chat updates (status, flag changes)
   useEffect(() => {
-    if (!activeWorkspace?.id) return;
-
     const handleChatUpdated = (updatedChat: any) => {
       console.log('[WorkspacePage] Chat updated:', updatedChat);
-      // Refresh chat list to show updated status/flag
-      loadChats(activeWorkspace.id);
+      // Refresh all chats to show updated status/flag
+      loadGlobalChats();
     };
 
     window.electronAPI.onChatUpdated(handleChatUpdated);
@@ -111,7 +111,7 @@ export default function WorkspacePage() {
     return () => {
       window.electronAPI.offChatUpdated();
     };
-  }, [activeWorkspace?.id]);
+  }, []);
 
   async function checkApiKey() {
     try {
@@ -140,6 +140,16 @@ export default function WorkspacePage() {
       setGlobalAgents(data);
     } catch (error) {
       console.error('Failed to load global agents:', error);
+    }
+  }
+
+  async function loadGlobalChats() {
+    try {
+      // Load ALL chats so users can always see their conversation history
+      const data = await electronAPI.chat.listAll();
+      setGlobalChats(data);
+    } catch (error) {
+      console.error('Failed to load chats:', error);
     }
   }
 
@@ -223,42 +233,60 @@ export default function WorkspacePage() {
   function handleSelectAgent(agentId: string) {
     // Check workspace agents first
     const agent = agents.find((a) => a.id === agentId);
-    if (agent) {
-      setSelectedAgent(agent);
-      return;
-    }
-    // Then check global agents
-    const globalAgent = globalAgents.find((a) => a.id === agentId);
-    if (globalAgent) {
-      setSelectedAgent(globalAgent);
+    const targetAgent = agent || globalAgents.find((a) => a.id === agentId);
+
+    if (targetAgent) {
+      setSelectedAgent(targetAgent);
+
+      // Find the most recent chat for this agent (all chats are in globalChats)
+      const agentChat = globalChats.find((c) => c.agent_id === agentId);
+
+      if (agentChat) {
+        // Use existing chat
+        setSelectedChat(agentChat);
+      } else {
+        // Clear selected chat - ChatPanel will create a new one
+        setSelectedChat(null);
+      }
     }
   }
 
   function handleSelectChat(chatId: string) {
-    const chat = chats.find((c) => c.id === chatId);
+    console.log('[WorkspacePage] handleSelectChat called with chatId:', chatId);
+
+    // All chats are now in globalChats
+    const chat = globalChats.find((c) => c.id === chatId);
+    console.log('[WorkspacePage] Found chat:', chat?.id, chat?.title, 'agent_id:', chat?.agent_id);
+
     if (chat) {
       setSelectedChat(chat);
       // Find the agent associated with this chat
       const agent = agents.find((a) => a.id === chat.agent_id);
+      console.log('[WorkspacePage] Found workspace agent:', agent?.id, agent?.name);
+
       if (agent) {
         setSelectedAgent(agent);
       } else {
         // Check global agents
         const globalAgent = globalAgents.find((a) => a.id === chat.agent_id);
+        console.log('[WorkspacePage] Found global agent:', globalAgent?.id, globalAgent?.name);
+
         if (globalAgent) {
           setSelectedAgent(globalAgent);
+        } else {
+          console.warn('[WorkspacePage] No agent found for chat! agent_id:', chat.agent_id);
+          console.log('[WorkspacePage] Available workspace agents:', agents.map(a => ({ id: a.id, name: a.name })));
+          console.log('[WorkspacePage] Available global agents:', globalAgents.map(a => ({ id: a.id, name: a.name })));
         }
       }
+    } else {
+      console.warn('[WorkspacePage] Chat not found in chats or globalChats');
+      console.log('[WorkspacePage] Available chats:', chats.map(c => c.id));
+      console.log('[WorkspacePage] Available globalChats:', globalChats.map(c => c.id));
     }
   }
 
   async function handleNewChat() {
-    // Ensure we have an active workspace
-    if (!activeWorkspace) {
-      console.warn('Cannot create new chat: No active workspace');
-      return;
-    }
-
     // Determine which agent to use
     let agentToUse = selectedAgent;
 
@@ -273,15 +301,15 @@ export default function WorkspacePage() {
     }
 
     try {
-      // Create new chat
+      // Create new chat (workspace_id can be null for global chats)
       const newChat = await window.electronAPI.chat.create({
-        workspace_id: activeWorkspace.id,
+        workspace_id: activeWorkspace?.id || null,
         agent_id: agentToUse.id,
         title: `Chat with ${agentToUse.name}`,
       });
 
-      // Refresh chats list
-      await loadChats(activeWorkspace.id);
+      // Refresh all chats list
+      await loadGlobalChats();
 
       // Select the newly created chat
       setSelectedChat(newChat);
@@ -658,10 +686,14 @@ export default function WorkspacePage() {
             onWorkspaceClose={handleWorkspaceClose}
             onWorkspaceDelete={handleWorkspaceDelete}
             onWorkspaceAdd={handleAddWorkspace}
-            chats={chats}
+            chats={[]}
+            globalChats={globalChats}
             selectedChatId={selectedChat?.id}
             onChatSelect={handleSelectChat}
-            onChatsUpdated={() => activeWorkspace && loadChats(activeWorkspace.id)}
+            onChatsUpdated={() => {
+              // Reload all chats to refresh the sidebar
+              loadGlobalChats();
+            }}
             onNewChat={handleNewChat}
             globalAgents={globalAgents}
             workspaceAgents={agents}
@@ -712,51 +744,36 @@ export default function WorkspacePage() {
                   </button>
                 </div>
               </div>
-            ) : selectedAgent && activeWorkspace ? (
+            ) : selectedAgent ? (
               <ChatPanel
                 agent={selectedAgent}
-                workspaceId={activeWorkspace.id}
+                workspaceId={activeWorkspace?.id}
+                selectedChat={selectedChat}
                 onOpenSettings={() => setSettingsOpen(true)}
-                onChatUpdated={() => loadChats(activeWorkspace.id)}
+                onChatUpdated={() => {
+                  if (activeWorkspace) {
+                    loadChats(activeWorkspace.id);
+                  }
+                  loadGlobalChats();
+                }}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center max-w-lg">
                   <Bot size={64} className="text-muted-foreground/50 mx-auto mb-4" />
                   <h2 className="text-2xl font-semibold text-foreground mb-2">
-                    {!activeWorkspace
-                      ? 'Create or import a workspace'
-                      : agents.length === 0 && globalAgents.length === 0
+                    {agents.length === 0 && globalAgents.length === 0
                       ? 'Create an agent to start chatting'
                       : 'Select an agent to start chatting'}
                   </h2>
                   <p className="text-muted-foreground mb-4">
-                    {!activeWorkspace
-                      ? 'Use the sidebar to create a new workspace or import an existing folder'
-                      : agents.length === 0 && globalAgents.length === 0
-                      ? 'Click the + button in Workspace Agents or Global Agents to create one'
-                      : 'Choose an agent from the sidebar to begin'}
+                    {agents.length === 0 && globalAgents.length === 0
+                      ? 'Click the + button in Global Agents to create one'
+                      : 'Choose an agent from the sidebar to begin a conversation'}
                   </p>
-                  {!activeWorkspace && (
-                    <div className="flex gap-3 justify-center">
-                      <button
-                        onClick={handleCreateWorkspace}
-                        className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors"
-                      >
-                        Create Workspace
-                      </button>
-                      <button
-                        onClick={handleImportFolder}
-                        className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors flex items-center gap-2"
-                      >
-                        <Upload size={16} />
-                        Import Folder
-                      </button>
-                    </div>
-                  )}
-                  {activeWorkspace && agents.length === 0 && globalAgents.length === 0 && (
+                  {agents.length === 0 && globalAgents.length === 0 && (
                     <button
-                      onClick={handleCreateWorkspaceAgent}
+                      onClick={handleCreateGlobalAgent}
                       className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors"
                     >
                       Create First Agent

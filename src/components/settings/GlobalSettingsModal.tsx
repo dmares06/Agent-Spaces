@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { X, Key, Zap, Server, Github } from 'lucide-react';
+import { X, Key, Zap, Server, Github, Clock, Send } from 'lucide-react';
 import GlobalSkillsSection from './sections/GlobalSkillsSection';
 import GlobalMCPSection from './sections/GlobalMCPSection';
 import GitHubSection from './sections/GitHubSection';
 import ApiKeysSection from './sections/ApiKeysSection';
+import SchedulerSection from './sections/SchedulerSection';
+import TelegramSection from './sections/TelegramSection';
 
-type SettingsTab = 'api-keys' | 'skills' | 'mcp' | 'github';
+type SettingsTab = 'api-keys' | 'skills' | 'mcp' | 'github' | 'scheduler' | 'telegram';
 
 interface GlobalSettingsModalProps {
   isOpen: boolean;
@@ -84,15 +86,28 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
             icon={<Github size={16} />}
             label="GitHub"
           />
+          <TabButton
+            active={activeTab === 'scheduler'}
+            onClick={() => setActiveTab('scheduler')}
+            icon={<Clock size={16} />}
+            label="Scheduler"
+          />
+          <TabButton
+            active={activeTab === 'telegram'}
+            onClick={() => setActiveTab('telegram')}
+            icon={<Send size={16} />}
+            label="Telegram"
+          />
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'api-keys' && <ApiKeysSection />}
-
           {activeTab === 'skills' && <GlobalSkillsSection />}
           {activeTab === 'mcp' && <GlobalMCPSection />}
           {activeTab === 'github' && <GitHubSection />}
+          {activeTab === 'scheduler' && <SchedulerSection />}
+          {activeTab === 'telegram' && <TelegramSection />}
         </div>
       </div>
     </div>

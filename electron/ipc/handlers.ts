@@ -7,6 +7,9 @@ import * as aiService from '../services/aiService.js';
 import * as terminalService from '../services/terminalService.js';
 import * as mcpTester from '../services/mcpTester.js';
 import * as githubService from '../services/githubService.js';
+import * as slashCommandService from '../services/slashCommandService.js';
+import * as schedulerService from '../services/schedulerService.js';
+import * as telegramService from '../services/telegramService.js';
 
 export function registerHandlers() {
   console.log('[IPC] Registering handlers');
@@ -126,6 +129,20 @@ export function registerHandlers() {
     }
   });
 
+  ipcMain.handle('workspace:get-slash-commands', async (_event, workspaceId: string) => {
+    try {
+      const workspace = db.getWorkspace(workspaceId);
+      if (!workspace?.folder_path) {
+        console.log('[IPC] No folder_path for workspace:', workspaceId);
+        return [];
+      }
+      return await slashCommandService.getSlashCommands(workspace.folder_path);
+    } catch (error: any) {
+      console.error('[IPC] workspace:get-slash-commands error:', error);
+      return [];
+    }
+  });
+
   // ===== Agent Handlers =====
 
   ipcMain.handle('agent:list', async (_event, workspaceId: string) => {
@@ -238,6 +255,24 @@ export function registerHandlers() {
     }
   });
 
+  ipcMain.handle('chat:list-global', async () => {
+    try {
+      return db.getGlobalChats();
+    } catch (error: any) {
+      console.error('[IPC] chat:list-global error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('chat:list-all', async () => {
+    try {
+      return db.getAllChats();
+    } catch (error: any) {
+      console.error('[IPC] chat:list-all error:', error);
+      throw new Error(error.message);
+    }
+  });
+
   ipcMain.handle('chat:create', async (_event, data) => {
     try {
       return db.createChat(data);
@@ -249,7 +284,13 @@ export function registerHandlers() {
 
   ipcMain.handle('chat:get-messages', async (_event, chatId: string) => {
     try {
-      return db.getMessages(chatId);
+      console.log('[IPC] chat:get-messages called for chatId:', chatId);
+      const messages = db.getMessages(chatId);
+      console.log('[IPC] chat:get-messages returning', messages.length, 'messages');
+      if (messages.length > 0) {
+        console.log('[IPC] First message role:', messages[0].role, 'content preview:', messages[0].content?.substring(0, 50));
+      }
+      return messages;
     } catch (error: any) {
       console.error('[IPC] chat:get-messages error:', error);
       throw new Error(error.message);
@@ -1930,6 +1971,199 @@ Take screenshots to show your progress.`;
     } catch (error: any) {
       console.error('[IPC] updater:quit-and-install error:', error);
       return { success: false, error: error.message };
+    }
+  });
+
+  // ===== Scheduler Handlers =====
+
+  ipcMain.handle('schedule:list', async () => {
+    try {
+      return schedulerService.listScheduledTasks();
+    } catch (error: any) {
+      console.error('[IPC] schedule:list error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:create', async (_event, data: {
+    name: string;
+    description?: string;
+    cron_expression: string;
+    command: string;
+    working_directory?: string;
+    enabled?: number;
+  }) => {
+    try {
+      return schedulerService.createScheduledTask({
+        name: data.name,
+        description: data.description,
+        cron_expression: data.cron_expression,
+        command: data.command,
+        working_directory: data.working_directory,
+        enabled: data.enabled ?? 1,
+      });
+    } catch (error: any) {
+      console.error('[IPC] schedule:create error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:update', async (_event, id: string, data: any) => {
+    try {
+      return schedulerService.updateScheduledTask(id, data);
+    } catch (error: any) {
+      console.error('[IPC] schedule:update error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:delete', async (_event, id: string) => {
+    try {
+      schedulerService.deleteScheduledTask(id);
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] schedule:delete error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:toggle', async (_event, id: string) => {
+    try {
+      return schedulerService.toggleScheduledTask(id);
+    } catch (error: any) {
+      console.error('[IPC] schedule:toggle error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:run-now', async (_event, id: string) => {
+    try {
+      return await schedulerService.runTaskNow(id);
+    } catch (error: any) {
+      console.error('[IPC] schedule:run-now error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:history', async (_event, taskId: string, limit?: number) => {
+    try {
+      return schedulerService.getTaskHistory(taskId, limit || 50);
+    } catch (error: any) {
+      console.error('[IPC] schedule:history error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('schedule:validate-cron', async (_event, expression: string) => {
+    try {
+      return schedulerService.validateCronExpression(expression);
+    } catch (error: any) {
+      console.error('[IPC] schedule:validate-cron error:', error);
+      return { valid: false, error: error.message };
+    }
+  });
+
+  // ===== Telegram Handlers =====
+
+  ipcMain.handle('telegram:set-token', async (_event, token: string) => {
+    try {
+      telegramService.setBotToken(token);
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] telegram:set-token error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('telegram:get-token', async () => {
+    try {
+      return telegramService.getBotTokenMasked();
+    } catch (error: any) {
+      console.error('[IPC] telegram:get-token error:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('telegram:test-connection', async (_event, token?: string) => {
+    try {
+      return await telegramService.testBotConnection(token);
+    } catch (error: any) {
+      console.error('[IPC] telegram:test-connection error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('telegram:start-bot', async () => {
+    try {
+      return await telegramService.startBot();
+    } catch (error: any) {
+      console.error('[IPC] telegram:start-bot error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('telegram:stop-bot', async () => {
+    try {
+      return await telegramService.stopBot();
+    } catch (error: any) {
+      console.error('[IPC] telegram:stop-bot error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('telegram:get-status', async () => {
+    try {
+      return telegramService.getStatus();
+    } catch (error: any) {
+      console.error('[IPC] telegram:get-status error:', error);
+      return { running: false, token: null };
+    }
+  });
+
+  ipcMain.handle('telegram:list-links', async () => {
+    try {
+      return telegramService.listLinks();
+    } catch (error: any) {
+      console.error('[IPC] telegram:list-links error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('telegram:create-link', async (_event, data: {
+    telegram_chat_id: string;
+    telegram_username?: string;
+    agent_id: string;
+    enabled?: number;
+  }) => {
+    try {
+      return telegramService.createLink({
+        telegram_chat_id: data.telegram_chat_id,
+        telegram_username: data.telegram_username,
+        agent_id: data.agent_id,
+        enabled: data.enabled ?? 1,
+      });
+    } catch (error: any) {
+      console.error('[IPC] telegram:create-link error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('telegram:delete-link', async (_event, id: string) => {
+    try {
+      telegramService.deleteLink(id);
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] telegram:delete-link error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('telegram:toggle-link', async (_event, id: string) => {
+    try {
+      return telegramService.toggleLink(id);
+    } catch (error: any) {
+      console.error('[IPC] telegram:toggle-link error:', error);
+      throw new Error(error.message);
     }
   });
 

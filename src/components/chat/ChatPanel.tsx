@@ -11,7 +11,8 @@ import type { Agent, Chat, ToolExecution } from '../../lib/types';
 
 interface ChatPanelProps {
   agent: Agent;
-  workspaceId: string;
+  workspaceId?: string;
+  selectedChat?: Chat | null;
   onOpenSettings: () => void;
   onChatUpdated?: () => void;
 }
@@ -21,7 +22,7 @@ interface StreamingMessage {
   thinkingContent: string;
 }
 
-export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUpdated }: ChatPanelProps) {
+export default function ChatPanel({ agent, workspaceId, selectedChat: selectedChatProp, onOpenSettings, onChatUpdated }: ChatPanelProps) {
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,12 +41,24 @@ export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUp
     checkApiKey();
   }, []);
 
-  // Load or create chat when agent changes
+  // Load or create chat based on selectedChat prop and agent
   useEffect(() => {
-    if (agent) {
-      loadOrCreateChat();
+    async function initializeChat() {
+      console.log('[ChatPanel] initializeChat called - selectedChatProp:', selectedChatProp?.id, 'agent:', agent.id, agent.name);
+
+      if (selectedChatProp) {
+        // A specific chat was selected - load its messages
+        console.log('[ChatPanel] Loading selected chat:', selectedChatProp.id, selectedChatProp.title);
+        await loadChatMessages(selectedChatProp);
+      } else if (agent) {
+        // No specific chat selected, but we have an agent - find or create a chat
+        console.log('[ChatPanel] No selected chat, finding/creating for agent:', agent.id);
+        await loadOrCreateChat();
+      }
     }
-  }, [agent.id]);
+
+    initializeChat();
+  }, [selectedChatProp?.id, agent.id]);
 
   // Set up streaming listener
   useEffect(() => {
@@ -118,13 +131,41 @@ export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUp
     }
   }
 
+  async function loadChatMessages(chatToLoad: Chat) {
+    console.log('[ChatPanel] loadChatMessages called for chat:', chatToLoad.id, chatToLoad.title);
+    setLoading(true);
+    setError(null);
+
+    try {
+      setChat(chatToLoad);
+      console.log('[ChatPanel] Fetching messages via electronAPI.chat.getMessages...');
+      const msgs = await electronAPI.chat.getMessages(chatToLoad.id);
+      console.log('[ChatPanel] Loaded', msgs.length, 'messages for chat:', chatToLoad.id);
+      if (msgs.length > 0) {
+        console.log('[ChatPanel] First message:', msgs[0]);
+        console.log('[ChatPanel] Last message:', msgs[msgs.length - 1]);
+      }
+      setMessages(msgs);
+      console.log('[ChatPanel] Messages state updated');
+    } catch (error: any) {
+      console.error('[ChatPanel] Failed to load chat messages:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+      console.log('[ChatPanel] Loading complete, loading state set to false');
+    }
+  }
+
   async function loadOrCreateChat() {
     setLoading(true);
     setError(null);
 
     try {
       // Try to find existing chat for this agent
-      const chats = await electronAPI.chat.list(workspaceId);
+      // For global chats (no workspace), use listGlobal; otherwise use list
+      const chats = workspaceId
+        ? await electronAPI.chat.list(workspaceId)
+        : await electronAPI.chat.listGlobal();
       const existingChat = chats.find((c: Chat) => c.agent_id === agent.id);
 
       if (existingChat) {
@@ -132,14 +173,16 @@ export default function ChatPanel({ agent, workspaceId, onOpenSettings, onChatUp
         const msgs = await electronAPI.chat.getMessages(existingChat.id);
         setMessages(msgs);
       } else {
-        // Create new chat
+        // Create new chat (workspace_id can be null for global chats)
         const newChat = await electronAPI.chat.create({
-          workspace_id: workspaceId,
+          workspace_id: workspaceId || null,
           agent_id: agent.id,
           title: `Chat with ${agent.name}`,
         });
         setChat(newChat);
         setMessages([]);
+        // Notify parent that a chat was created
+        onChatUpdated?.();
       }
     } catch (error: any) {
       console.error('Failed to load chat:', error);

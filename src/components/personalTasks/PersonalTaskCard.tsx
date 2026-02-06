@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { PersonalTask } from '../../lib/types';
 import { electronAPI } from '../../lib/electronAPI';
+import DatePickerModal from './DatePickerModal';
 
 interface PersonalTaskCardProps {
   task: PersonalTask;
@@ -8,6 +10,7 @@ interface PersonalTaskCardProps {
 }
 
 export default function PersonalTaskCard({ task, onEdit, onDelete }: PersonalTaskCardProps) {
+  const [showDatePicker, setShowDatePicker] = useState(false);
   function handleDragStart(e: React.DragEvent) {
     e.dataTransfer.setData('application/personal-task-id', task.id);
     e.dataTransfer.effectAllowed = 'move';
@@ -17,9 +20,15 @@ export default function PersonalTaskCard({ task, onEdit, onDelete }: PersonalTas
     await electronAPI.personalTask.updateStatus(task.id, 'completed');
   }
 
+  async function handleReschedule(date: Date) {
+    const dateStr = date.toISOString().split('T')[0];
+    await electronAPI.personalTask.update(task.id, { due_date: dateStr });
+    setShowDatePicker(false);
+  }
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const isOverdue = () => {
@@ -79,7 +88,7 @@ export default function PersonalTaskCard({ task, onEdit, onDelete }: PersonalTas
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {task.status !== 'completed' && (
             <button
               onClick={handleComplete}
@@ -88,6 +97,13 @@ export default function PersonalTaskCard({ task, onEdit, onDelete }: PersonalTas
               ✓ Complete
             </button>
           )}
+          <button
+            onClick={() => setShowDatePicker(true)}
+            className="text-xs px-2 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
+            title="Change due date"
+          >
+            📅 {task.due_date ? 'Reschedule' : 'Schedule'}
+          </button>
           <button
             onClick={() => onEdit(task)}
             className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
@@ -102,6 +118,14 @@ export default function PersonalTaskCard({ task, onEdit, onDelete }: PersonalTas
           </button>
         </div>
       </div>
+
+      {/* Date Picker Modal */}
+      <DatePickerModal
+        isOpen={showDatePicker}
+        onClose={() => setShowDatePicker(false)}
+        onSelectDate={handleReschedule}
+        initialDate={task.due_date ? new Date(task.due_date) : undefined}
+      />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  Send,
   Loader2,
   Paperclip,
   X,
@@ -10,11 +9,13 @@ import {
   Globe,
   ChevronDown,
   ArrowUp,
+  Command,
 } from 'lucide-react';
-import { electronAPI } from '../../lib/electronAPI';
+import { electronAPI, type SlashCommand } from '../../lib/electronAPI';
 import { type Agent } from '../../lib/types';
 import { AVAILABLE_MODELS } from '../../lib/types';
 import AgentMentionDropdown from './AgentMentionDropdown';
+import SlashCommandMenu from './SlashCommandMenu';
 
 interface EnhancedChatInputProps {
   onSend: (message: string, mentionedAgents?: Agent[], attachedFiles?: File[], browserMode?: boolean) => void;
@@ -43,6 +44,12 @@ export default function EnhancedChatInput({
   const [agents, setAgents] = useState<Agent[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
+  // Slash command state
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [showSlashCommands, setShowSlashCommands] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
+  const [selectedCommand, setSelectedCommand] = useState<SlashCommand | null>(null);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -70,6 +77,26 @@ export default function EnhancedChatInput({
     loadAgents();
   }, [workspaceId]);
 
+  // Load slash commands when workspace changes
+  useEffect(() => {
+    async function loadSlashCommands() {
+      if (!workspaceId) {
+        setSlashCommands([]);
+        return;
+      }
+
+      try {
+        const commands = await electronAPI.workspace.getSlashCommands(workspaceId);
+        setSlashCommands(commands);
+        console.log('[EnhancedChatInput] Loaded', commands.length, 'slash commands');
+      } catch (error) {
+        console.error('Failed to load slash commands:', error);
+        setSlashCommands([]);
+      }
+    }
+    loadSlashCommands();
+  }, [workspaceId]);
+
   // Auto-resize textarea
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -94,8 +121,29 @@ export default function EnhancedChatInput({
 
     setMessage(value);
 
-    // Detect @ mentions
+    // Detect / slash commands (only at start of line or after space)
     const beforeCursor = value.substring(0, cursorPos);
+    const lastSlashIndex = beforeCursor.lastIndexOf('/');
+
+    // Check if this slash is at start of line or after whitespace
+    const isValidSlashPosition =
+      lastSlashIndex === 0 ||
+      (lastSlashIndex > 0 && /\s/.test(beforeCursor[lastSlashIndex - 1]));
+
+    if (lastSlashIndex !== -1 && isValidSlashPosition && slashCommands.length > 0) {
+      const query = beforeCursor.substring(lastSlashIndex + 1);
+      // Only show dropdown if no space after the query (still typing command name)
+      if (!/\s/.test(query)) {
+        setShowSlashCommands(true);
+        setSlashQuery(query);
+        setShowMentions(false);
+        return;
+      }
+    }
+
+    setShowSlashCommands(false);
+
+    // Detect @ mentions
     const lastAtIndex = beforeCursor.lastIndexOf('@');
 
     if (lastAtIndex !== -1) {
@@ -118,6 +166,33 @@ export default function EnhancedChatInput({
     } else {
       setShowMentions(false);
     }
+  }
+
+  function handleSlashCommandSelect(command: SlashCommand) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Set the selected command (will be shown as a pill)
+    setSelectedCommand(command);
+
+    // Replace the /query with empty (since we show it as a pill)
+    const cursorPos = textarea.selectionStart;
+    const beforeCursor = message.substring(0, cursorPos);
+    const lastSlashIndex = beforeCursor.lastIndexOf('/');
+    const afterCursor = message.substring(cursorPos);
+
+    // Keep any text after the command query
+    const newMessage = message.substring(0, lastSlashIndex) + afterCursor.trimStart();
+    setMessage(newMessage);
+    setShowSlashCommands(false);
+
+    setTimeout(() => {
+      textarea.focus();
+    }, 0);
+  }
+
+  function clearSelectedCommand() {
+    setSelectedCommand(null);
   }
 
   function handleAgentSelect(agent: Agent) {
@@ -167,11 +242,18 @@ export default function EnhancedChatInput({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if ((!message.trim() && attachedFiles.length === 0) || disabled) return;
+    if ((!message.trim() && attachedFiles.length === 0 && !selectedCommand) || disabled) return;
+
+    let finalMessage = message.trim();
+
+    // If a slash command is selected, prepend its content as context
+    if (selectedCommand) {
+      finalMessage = `[SLASH COMMAND: /${selectedCommand.name}]\n${selectedCommand.content}\n\n[USER MESSAGE]\n${finalMessage || '(No additional context provided)'}`;
+    }
 
     const mentionedAgents = extractMentions();
     onSend(
-      message.trim(),
+      finalMessage,
       mentionedAgents.length > 0 ? mentionedAgents : undefined,
       attachedFiles.length > 0 ? attachedFiles : undefined,
       browserMode
@@ -179,9 +261,16 @@ export default function EnhancedChatInput({
     setMessage('');
     setAttachedFiles([]);
     setShowMentions(false);
+    setShowSlashCommands(false);
+    setSelectedCommand(null);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    // Let slash command menu handle navigation keys
+    if (showSlashCommands && ['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+      return;
+    }
+
     if (showMentions && ['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
       return;
     }
@@ -206,6 +295,23 @@ export default function EnhancedChatInput({
     }, 0);
   }
 
+  function insertSlash() {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const cursorPos = textarea.selectionStart;
+    const newMessage = message.substring(0, cursorPos) + '/' + message.substring(cursorPos);
+    setMessage(newMessage);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(cursorPos + 1, cursorPos + 1);
+      // Trigger change handler to show dropdown
+      const event = { target: { value: newMessage, selectionStart: cursorPos + 1 } } as any;
+      handleChange(event);
+    }, 0);
+  }
+
   return (
     <form onSubmit={handleSubmit} className="border-t border-border bg-background">
       {/* Agent Mention Dropdown */}
@@ -219,9 +325,25 @@ export default function EnhancedChatInput({
         />
       )}
 
-      {/* Attached Files */}
-      {attachedFiles.length > 0 && (
+      {/* Selected Command Pill + Attached Files */}
+      {(selectedCommand || attachedFiles.length > 0) && (
         <div className="px-4 pt-3 flex flex-wrap gap-2">
+          {/* Selected slash command pill */}
+          {selectedCommand && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/30 rounded-lg text-xs">
+              <Command size={12} className="text-accent" />
+              <span className="text-accent font-medium">/{selectedCommand.name}</span>
+              <button
+                type="button"
+                onClick={clearSelectedCommand}
+                className="text-accent/70 hover:text-accent transition-colors"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          {/* Attached files */}
           {attachedFiles.map((file, index) => (
             <div
               key={index}
@@ -244,7 +366,17 @@ export default function EnhancedChatInput({
 
       {/* Main Input Container */}
       <div className="px-4 py-3">
-        <div className="flex items-center gap-2 bg-muted/30 border border-border rounded-lg px-3 py-2">
+        <div className="relative flex items-center gap-2 bg-muted/30 border border-border rounded-lg px-3 py-2">
+          {/* Slash Command Menu */}
+          {showSlashCommands && slashCommands.length > 0 && (
+            <SlashCommandMenu
+              commands={slashCommands}
+              query={slashQuery}
+              onSelect={handleSlashCommandSelect}
+              onClose={() => setShowSlashCommands(false)}
+            />
+          )}
+
           {/* Hidden file inputs */}
           <input
             ref={fileInputRef}
@@ -314,7 +446,7 @@ export default function EnhancedChatInput({
               value={message}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
-              placeholder={placeholder || 'Plan, @ for context, / for commands'}
+              placeholder={placeholder || (slashCommands.length > 0 ? 'Type / for commands, @ for agents...' : 'Plan, @ for context, / for commands')}
               disabled={disabled}
               rows={1}
               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -323,6 +455,19 @@ export default function EnhancedChatInput({
 
           {/* Right Side Icons */}
           <div className="flex items-center gap-1">
+            {/* Slash Commands (only if available) */}
+            {slashCommands.length > 0 && (
+              <button
+                type="button"
+                onClick={insertSlash}
+                disabled={disabled}
+                className="p-1.5 rounded hover:bg-background/80 transition-colors disabled:opacity-50"
+                title="Slash commands (/)"
+              >
+                <Command size={16} className="text-muted-foreground" />
+              </button>
+            )}
+
             {/* @ Mention */}
             <button
               type="button"
@@ -381,7 +526,7 @@ export default function EnhancedChatInput({
             {/* Send Button */}
             <button
               type="submit"
-              disabled={(!message.trim() && attachedFiles.length === 0) || disabled}
+              disabled={(!message.trim() && attachedFiles.length === 0 && !selectedCommand) || disabled}
               className="p-1.5 bg-accent text-white rounded hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Send (Enter)"
             >
@@ -404,7 +549,11 @@ export default function EnhancedChatInput({
 
         {/* Hint Text */}
         <div className="mt-2 text-[10px] text-muted-foreground text-center">
-          Press Enter to send, Shift+Enter for new line
+          {slashCommands.length > 0 ? (
+            <>Type <kbd className="px-1 py-0.5 bg-muted rounded">/</kbd> for commands, Enter to send</>
+          ) : (
+            'Press Enter to send, Shift+Enter for new line'
+          )}
         </div>
       </div>
     </form>

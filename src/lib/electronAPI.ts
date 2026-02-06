@@ -16,6 +16,14 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+export interface SlashCommand {
+  name: string;
+  description: string;
+  type: 'command' | 'skill';
+  filePath: string;
+  content: string;
+}
+
 export interface ElectronAPI {
   workspace: {
     list: () => Promise<any[]>;
@@ -23,6 +31,7 @@ export interface ElectronAPI {
     delete: (id: string) => Promise<any>;
     update: (id: string, updates: any) => Promise<any>;
     importFolder: (folderPath: string) => Promise<any>;
+    getSlashCommands: (workspaceId: string) => Promise<SlashCommand[]>;
   };
   agent: {
     list: (workspaceId: string) => Promise<any[]>;
@@ -38,6 +47,8 @@ export interface ElectronAPI {
   };
   chat: {
     list: (workspaceId: string) => Promise<any[]>;
+    listGlobal: () => Promise<any[]>;
+    listAll: () => Promise<any[]>;
     create: (data: any) => Promise<any>;
     getMessages: (chatId: string) => Promise<any[]>;
     sendMessage: (data: { chat_id: string; content: string; browserMode?: boolean }) => Promise<any>;
@@ -223,6 +234,46 @@ export interface ElectronAPI {
     get: (canvasId: string) => Promise<any>;
     delete: (canvasId: string) => Promise<{ success: boolean }>;
   };
+  schedule: {
+    list: () => Promise<any[]>;
+    create: (data: {
+      name: string;
+      description?: string;
+      cron_expression: string;
+      command: string;
+      working_directory?: string;
+      enabled?: number;
+    }) => Promise<any>;
+    update: (id: string, data: any) => Promise<any>;
+    delete: (id: string) => Promise<{ success: boolean }>;
+    toggle: (id: string) => Promise<any>;
+    runNow: (id: string) => Promise<any>;
+    history: (taskId: string, limit?: number) => Promise<any[]>;
+    validateCron: (expression: string) => Promise<{ valid: boolean; error?: string; nextRun?: string }>;
+  };
+  onScheduleOutput: (callback: (data: any) => void) => void;
+  offScheduleOutput: () => void;
+  onScheduleComplete: (callback: (data: any) => void) => void;
+  offScheduleComplete: () => void;
+  telegram: {
+    setToken: (token: string) => Promise<{ success: boolean }>;
+    getToken: () => Promise<string | null>;
+    testConnection: (token?: string) => Promise<{ success: boolean; username?: string; error?: string }>;
+    startBot: () => Promise<{ success: boolean; error?: string }>;
+    stopBot: () => Promise<{ success: boolean }>;
+    getStatus: () => Promise<{ running: boolean; token: string | null }>;
+    listLinks: () => Promise<any[]>;
+    createLink: (data: {
+      telegram_chat_id: string;
+      telegram_username?: string;
+      agent_id: string;
+      enabled?: number;
+    }) => Promise<any>;
+    deleteLink: (id: string) => Promise<{ success: boolean }>;
+    toggleLink: (id: string) => Promise<any>;
+  };
+  onTelegramActivity: (callback: (data: any) => void) => void;
+  offTelegramActivity: () => void;
 }
 
 declare global {

@@ -1,19 +1,28 @@
 import { useState } from 'react';
 import { PersonalTask } from '../../lib/types';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import DayTasksModal from './DayTasksModal';
 
 interface PersonalTaskCalendarProps {
   tasks: PersonalTask[];
   onDateSelect: (date: Date) => void;
   onTaskDrop: (taskId: string, dateStr: string) => void;
+  onTaskEdit: (task: PersonalTask) => void;
+  onTaskDelete: (taskId: string) => void;
+  onTaskMove: (taskId: string, newStatus: PersonalTask['status']) => void;
 }
 
 export default function PersonalTaskCalendar({
   tasks,
   onDateSelect,
-  onTaskDrop
+  onTaskDrop,
+  onTaskEdit,
+  onTaskDelete,
+  onTaskMove
 }: PersonalTaskCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [isDayModalOpen, setIsDayModalOpen] = useState(false);
 
   // Group tasks by due_date
   const tasksByDate: Record<string, PersonalTask[]> = {};
@@ -93,6 +102,15 @@ export default function PersonalTaskCalendar({
     setCurrentMonth(new Date());
   }
 
+  function handleDayClick(date: Date, hasTasks: boolean) {
+    if (hasTasks) {
+      setSelectedDate(date);
+      setIsDayModalOpen(true);
+    } else {
+      onDateSelect(date);
+    }
+  }
+
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -162,7 +180,7 @@ export default function PersonalTaskCalendar({
                   ? 'bg-background hover:bg-muted'
                   : 'bg-muted/30 text-muted-foreground'
               } ${today ? 'ring-2 ring-accent' : ''}`}
-              onClick={() => onDateSelect(date)}
+              onClick={() => handleDayClick(date, dayTasks.length > 0)}
               onDrop={(e) => handleDrop(e, dateStr)}
               onDragOver={handleDragOver}
             >
@@ -171,42 +189,53 @@ export default function PersonalTaskCalendar({
                 {date.getDate()}
               </div>
 
-              {/* Task indicators */}
+              {/* Task snippets */}
               {dayTasks.length > 0 && (
                 <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">
-                    {dayTasks.length} task{dayTasks.length > 1 ? 's' : ''}
-                  </div>
-
-                  {/* Task dots */}
-                  <div className="flex flex-wrap gap-1">
-                    {dayTasks.slice(0, 4).map(task => (
-                      <div
-                        key={task.id}
-                        className={`w-2 h-2 rounded-full ${
-                          task.status === 'completed'
-                            ? 'bg-green-500'
-                            : task.status === 'working'
-                            ? 'bg-blue-500'
-                            : task.status === 'review'
-                            ? 'bg-purple-500'
-                            : 'bg-gray-400'
-                        }`}
-                        title={task.title}
-                      />
-                    ))}
-                    {dayTasks.length > 4 && (
-                      <span className="text-xs text-muted-foreground">
-                        +{dayTasks.length - 4}
+                  {/* Show first 2-3 tasks */}
+                  {dayTasks.slice(0, 2).map(task => (
+                    <div
+                      key={task.id}
+                      className="text-xs truncate flex items-center gap-1"
+                    >
+                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        task.status === 'completed'
+                          ? 'bg-green-500'
+                          : task.status === 'working'
+                          ? 'bg-blue-500'
+                          : task.status === 'review'
+                          ? 'bg-purple-500'
+                          : 'bg-gray-400'
+                      }`} />
+                      <span className="truncate" title={task.title}>
+                        {task.title}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  ))}
+
+                  {/* Show count if more tasks */}
+                  {dayTasks.length > 2 && (
+                    <div className="text-xs text-muted-foreground">
+                      +{dayTasks.length - 2} more
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Day Tasks Modal */}
+      <DayTasksModal
+        date={selectedDate}
+        tasks={selectedDate ? (tasksByDate[formatDateKey(selectedDate)] || []) : []}
+        isOpen={isDayModalOpen}
+        onClose={() => setIsDayModalOpen(false)}
+        onTaskEdit={onTaskEdit}
+        onTaskDelete={onTaskDelete}
+        onTaskMove={onTaskMove}
+      />
     </div>
   );
 }

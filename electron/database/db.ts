@@ -451,6 +451,136 @@ function runMigrations(database: Database.Database): void {
     }
   }
 
+  // Migration 4: Scheduled Tasks + Telegram Integration (v4)
+  if (currentVersion < 4) {
+    console.log('[DB] Running migration 4: Scheduled Tasks + Telegram Integration');
+
+    try {
+      // Create scheduled_tasks table
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS scheduled_tasks (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          cron_expression TEXT NOT NULL,
+          command TEXT NOT NULL,
+          working_directory TEXT,
+          enabled INTEGER DEFAULT 1,
+          last_run_at TEXT,
+          next_run_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+      console.log('[DB] Created scheduled_tasks table');
+
+      // Create scheduled_task_runs table for execution history
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+          id TEXT PRIMARY KEY,
+          scheduled_task_id TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          status TEXT DEFAULT 'running' CHECK(status IN ('running', 'success', 'failed', 'cancelled')),
+          exit_code INTEGER,
+          output TEXT,
+          error TEXT,
+          FOREIGN KEY (scheduled_task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+        )
+      `);
+      console.log('[DB] Created scheduled_task_runs table');
+
+      // Create telegram_agent_links table
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS telegram_agent_links (
+          id TEXT PRIMARY KEY,
+          telegram_chat_id TEXT NOT NULL UNIQUE,
+          telegram_username TEXT,
+          agent_id TEXT NOT NULL,
+          chat_id TEXT,
+          enabled INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+          FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE SET NULL
+        )
+      `);
+      console.log('[DB] Created telegram_agent_links table');
+
+      // Create indexes
+      database.exec('CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled)');
+      database.exec('CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task ON scheduled_task_runs(scheduled_task_id)');
+      database.exec('CREATE INDEX IF NOT EXISTS idx_telegram_links_chat ON telegram_agent_links(telegram_chat_id)');
+      console.log('[DB] Created indexes for scheduled_tasks and telegram');
+
+      // Set schema version directly
+      const timestamp = now();
+      const setStmt = database.prepare(`
+        INSERT INTO settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
+      `);
+      setStmt.run('schema_version', '4', timestamp, '4', timestamp);
+      console.log('[DB] Migration 4 completed successfully');
+    } catch (error) {
+      console.error('[DB] Migration 4 failed:', error);
+      // Don't throw - let app continue with potentially partial migration
+    }
+  }
+
+  // Migration 5: Allow workspace-less chats (Global Chats) (v5)
+  if (currentVersion < 5) {
+    console.log('[DB] Running migration 5: Allow workspace-less chats');
+
+    try {
+      // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+      // First, create new table with nullable workspace_id
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS chats_new (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT,
+          agent_id TEXT NOT NULL,
+          title TEXT,
+          status TEXT DEFAULT 'active' CHECK(status IN ('active', 'archived', 'deleted')),
+          is_flagged INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+          FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        );
+
+        -- Copy data from old table
+        INSERT INTO chats_new (id, workspace_id, agent_id, title, status, is_flagged, created_at, updated_at)
+        SELECT id, workspace_id, agent_id, title,
+               COALESCE(status, 'active'),
+               COALESCE(is_flagged, 0),
+               created_at, updated_at
+        FROM chats;
+
+        -- Drop old table and rename new one
+        DROP TABLE chats;
+        ALTER TABLE chats_new RENAME TO chats;
+
+        -- Recreate index
+        CREATE INDEX IF NOT EXISTS idx_chats_workspace ON chats(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_chats_agent ON chats(agent_id);
+      `);
+
+      // Update schema version
+      const timestamp = now();
+      const setStmt = database.prepare(`
+        INSERT INTO settings (key, value, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
+      `);
+      setStmt.run('schema_version', '5', timestamp, '5', timestamp);
+      console.log('[DB] Migration 5 completed successfully');
+    } catch (error) {
+      console.error('[DB] Migration 5 failed:', error);
+      // Don't throw - let app continue with potentially partial migration
+    }
+  }
+
   console.log('[DB] All migrations completed');
 }
 
@@ -692,7 +822,7 @@ export interface Chat {
   updated_at: string;
 }
 
-export function createChat(data: Omit<Chat, 'id' | 'created_at' | 'updated_at'>): Chat {
+export function createChat(data: Omit<Chat, 'id' | 'created_at' | 'updated_at'> & { workspace_id?: string | null }): Chat {
   const db = getDatabase();
   const id = generateId();
   const timestamp = now();
@@ -702,15 +832,28 @@ export function createChat(data: Omit<Chat, 'id' | 'created_at' | 'updated_at'>)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(id, data.workspace_id, data.agent_id, data.title, timestamp, timestamp);
+  // Allow null workspace_id for global chats
+  stmt.run(id, data.workspace_id || null, data.agent_id, data.title, timestamp, timestamp);
 
-  return { id, ...data, created_at: timestamp, updated_at: timestamp };
+  return { id, workspace_id: data.workspace_id || null, agent_id: data.agent_id, title: data.title, created_at: timestamp, updated_at: timestamp } as Chat;
 }
 
 export function getChats(workspaceId: string): Chat[] {
   const db = getDatabase();
   const stmt = db.prepare('SELECT * FROM chats WHERE workspace_id = ? ORDER BY updated_at DESC');
   return stmt.all(workspaceId) as Chat[];
+}
+
+export function getGlobalChats(): Chat[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM chats WHERE workspace_id IS NULL ORDER BY updated_at DESC');
+  return stmt.all() as Chat[];
+}
+
+export function getAllChats(): Chat[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM chats ORDER BY updated_at DESC');
+  return stmt.all() as Chat[];
 }
 
 export function getChat(id: string): Chat | null {
@@ -764,21 +907,34 @@ export interface Message {
 }
 
 export function createMessage(data: Omit<Message, 'id' | 'created_at'>): Message {
+  console.log('[DB] createMessage called with:', { chat_id: data.chat_id, role: data.role, content_length: data.content?.length });
+
   const db = getDatabase();
   const id = generateId();
   const timestamp = now();
 
-  const stmt = db.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, attachments, thinking_content, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO messages (id, chat_id, role, content, attachments, thinking_content, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
 
-  stmt.run(id, data.chat_id, data.role, data.content, data.attachments, data.thinking_content, timestamp);
+    const result = stmt.run(id, data.chat_id, data.role, data.content, data.attachments, data.thinking_content, timestamp);
+    console.log('[DB] Message inserted successfully:', { id, changes: result.changes });
 
-  // Update chat timestamp
-  updateChatTimestamp(data.chat_id);
+    // Update chat timestamp
+    updateChatTimestamp(data.chat_id);
 
-  return { id, ...data, created_at: timestamp };
+    // Verify the message was saved
+    const verifyStmt = db.prepare('SELECT COUNT(*) as count FROM messages WHERE id = ?');
+    const verify = verifyStmt.get(id) as { count: number };
+    console.log('[DB] Message verification:', verify);
+
+    return { id, ...data, created_at: timestamp };
+  } catch (error) {
+    console.error('[DB] createMessage FAILED:', error);
+    throw error;
+  }
 }
 
 export function getMessages(chatId: string): Message[] {
@@ -1435,4 +1591,260 @@ export function canvasDelete(id: string): { success: boolean } {
   const stmt = db.prepare('DELETE FROM canvases WHERE id = ?');
   stmt.run(id);
   return { success: true };
+}
+
+// ===== Scheduled Task Operations =====
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  description?: string;
+  cron_expression: string;
+  command: string;
+  working_directory?: string;
+  enabled: number;
+  last_run_at?: string;
+  next_run_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduledTaskRun {
+  id: string;
+  scheduled_task_id: string;
+  started_at: string;
+  completed_at?: string;
+  status: 'running' | 'success' | 'failed' | 'cancelled';
+  exit_code?: number;
+  output?: string;
+  error?: string;
+}
+
+export function createScheduledTask(data: Omit<ScheduledTask, 'id' | 'created_at' | 'updated_at'>): ScheduledTask {
+  const db = getDatabase();
+  const id = generateId();
+  const timestamp = now();
+
+  const stmt = db.prepare(`
+    INSERT INTO scheduled_tasks (id, name, description, cron_expression, command, working_directory, enabled, next_run_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    id,
+    data.name,
+    data.description || null,
+    data.cron_expression,
+    data.command,
+    data.working_directory || null,
+    data.enabled ?? 1,
+    data.next_run_at || null,
+    timestamp,
+    timestamp
+  );
+
+  return getScheduledTask(id)!;
+}
+
+export function getScheduledTasks(): ScheduledTask[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC');
+  return stmt.all() as ScheduledTask[];
+}
+
+export function getEnabledScheduledTasks(): ScheduledTask[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM scheduled_tasks WHERE enabled = 1 ORDER BY created_at DESC');
+  return stmt.all() as ScheduledTask[];
+}
+
+export function getScheduledTask(id: string): ScheduledTask | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?');
+  return stmt.get(id) as ScheduledTask | null;
+}
+
+export function updateScheduledTask(id: string, data: Partial<Omit<ScheduledTask, 'id' | 'created_at'>>): ScheduledTask {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  Object.entries(data).forEach(([key, value]) => {
+    if (key !== 'id' && key !== 'created_at' && value !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+  });
+
+  if (fields.length > 0) {
+    fields.push('updated_at = ?');
+    values.push(now());
+    values.push(id);
+
+    const stmt = db.prepare(`UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`);
+    stmt.run(...values);
+  }
+
+  return getScheduledTask(id)!;
+}
+
+export function deleteScheduledTask(id: string): void {
+  const db = getDatabase();
+  const stmt = db.prepare('DELETE FROM scheduled_tasks WHERE id = ?');
+  stmt.run(id);
+}
+
+export function toggleScheduledTask(id: string): ScheduledTask {
+  const db = getDatabase();
+  const stmt = db.prepare('UPDATE scheduled_tasks SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END, updated_at = ? WHERE id = ?');
+  stmt.run(now(), id);
+  return getScheduledTask(id)!;
+}
+
+export function createScheduledTaskRun(data: Omit<ScheduledTaskRun, 'id'>): ScheduledTaskRun {
+  const db = getDatabase();
+  const id = generateId();
+
+  const stmt = db.prepare(`
+    INSERT INTO scheduled_task_runs (id, scheduled_task_id, started_at, completed_at, status, exit_code, output, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    id,
+    data.scheduled_task_id,
+    data.started_at,
+    data.completed_at || null,
+    data.status,
+    data.exit_code ?? null,
+    data.output || null,
+    data.error || null
+  );
+
+  return getScheduledTaskRun(id)!;
+}
+
+export function getScheduledTaskRun(id: string): ScheduledTaskRun | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM scheduled_task_runs WHERE id = ?');
+  return stmt.get(id) as ScheduledTaskRun | null;
+}
+
+export function getScheduledTaskRuns(taskId: string, limit: number = 50): ScheduledTaskRun[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM scheduled_task_runs WHERE scheduled_task_id = ? ORDER BY started_at DESC LIMIT ?');
+  return stmt.all(taskId, limit) as ScheduledTaskRun[];
+}
+
+export function updateScheduledTaskRun(id: string, data: Partial<Omit<ScheduledTaskRun, 'id' | 'scheduled_task_id' | 'started_at'>>): ScheduledTaskRun {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  Object.entries(data).forEach(([key, value]) => {
+    if (value !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+  });
+
+  if (fields.length > 0) {
+    values.push(id);
+    const stmt = db.prepare(`UPDATE scheduled_task_runs SET ${fields.join(', ')} WHERE id = ?`);
+    stmt.run(...values);
+  }
+
+  return getScheduledTaskRun(id)!;
+}
+
+// ===== Telegram Agent Link Operations =====
+
+export interface TelegramAgentLink {
+  id: string;
+  telegram_chat_id: string;
+  telegram_username?: string;
+  agent_id: string;
+  chat_id?: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function createTelegramAgentLink(data: Omit<TelegramAgentLink, 'id' | 'created_at' | 'updated_at'>): TelegramAgentLink {
+  const db = getDatabase();
+  const id = generateId();
+  const timestamp = now();
+
+  const stmt = db.prepare(`
+    INSERT INTO telegram_agent_links (id, telegram_chat_id, telegram_username, agent_id, chat_id, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    id,
+    data.telegram_chat_id,
+    data.telegram_username || null,
+    data.agent_id,
+    data.chat_id || null,
+    data.enabled ?? 1,
+    timestamp,
+    timestamp
+  );
+
+  return getTelegramAgentLink(id)!;
+}
+
+export function getTelegramAgentLinks(): TelegramAgentLink[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM telegram_agent_links ORDER BY created_at DESC');
+  return stmt.all() as TelegramAgentLink[];
+}
+
+export function getTelegramAgentLink(id: string): TelegramAgentLink | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM telegram_agent_links WHERE id = ?');
+  return stmt.get(id) as TelegramAgentLink | null;
+}
+
+export function getTelegramAgentLinkByChatId(telegramChatId: string): TelegramAgentLink | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM telegram_agent_links WHERE telegram_chat_id = ?');
+  return stmt.get(telegramChatId) as TelegramAgentLink | null;
+}
+
+export function updateTelegramAgentLink(id: string, data: Partial<Omit<TelegramAgentLink, 'id' | 'created_at'>>): TelegramAgentLink {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  Object.entries(data).forEach(([key, value]) => {
+    if (key !== 'id' && key !== 'created_at' && value !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+  });
+
+  if (fields.length > 0) {
+    fields.push('updated_at = ?');
+    values.push(now());
+    values.push(id);
+
+    const stmt = db.prepare(`UPDATE telegram_agent_links SET ${fields.join(', ')} WHERE id = ?`);
+    stmt.run(...values);
+  }
+
+  return getTelegramAgentLink(id)!;
+}
+
+export function deleteTelegramAgentLink(id: string): void {
+  const db = getDatabase();
+  const stmt = db.prepare('DELETE FROM telegram_agent_links WHERE id = ?');
+  stmt.run(id);
+}
+
+export function toggleTelegramAgentLink(id: string): TelegramAgentLink {
+  const db = getDatabase();
+  const stmt = db.prepare('UPDATE telegram_agent_links SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END, updated_at = ? WHERE id = ?');
+  stmt.run(now(), id);
+  return getTelegramAgentLink(id)!;
 }

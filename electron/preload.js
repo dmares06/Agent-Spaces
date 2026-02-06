@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (id) => ipcRenderer.invoke('workspace:delete', id),
     update: (id, updates) => ipcRenderer.invoke('workspace:update', id, updates),
     importFolder: (folderPath) => ipcRenderer.invoke('workspace:import-folder', folderPath),
+    getSlashCommands: (workspaceId) => ipcRenderer.invoke('workspace:get-slash-commands', workspaceId),
   },
 
   // Agent operations
@@ -56,6 +57,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Chat operations
   chat: {
     list: (workspaceId) => ipcRenderer.invoke('chat:list', workspaceId),
+    listGlobal: () => ipcRenderer.invoke('chat:list-global'),
+    listAll: () => ipcRenderer.invoke('chat:list-all'),
     create: (data) => ipcRenderer.invoke('chat:create', data),
     getMessages: (chatId) => ipcRenderer.invoke('chat:get-messages', chatId),
     sendMessage: (data) => ipcRenderer.invoke('chat:send-message', data),
@@ -344,6 +347,54 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (workspaceId) => ipcRenderer.invoke('canvas:list', workspaceId),
     get: (canvasId) => ipcRenderer.invoke('canvas:get', canvasId),
     delete: (canvasId) => ipcRenderer.invoke('canvas:delete', canvasId),
+  },
+
+  // Scheduler operations
+  schedule: {
+    list: () => ipcRenderer.invoke('schedule:list'),
+    create: (data) => ipcRenderer.invoke('schedule:create', data),
+    update: (id, data) => ipcRenderer.invoke('schedule:update', id, data),
+    delete: (id) => ipcRenderer.invoke('schedule:delete', id),
+    toggle: (id) => ipcRenderer.invoke('schedule:toggle', id),
+    runNow: (id) => ipcRenderer.invoke('schedule:run-now', id),
+    history: (taskId, limit) => ipcRenderer.invoke('schedule:history', taskId, limit),
+    validateCron: (expression) => ipcRenderer.invoke('schedule:validate-cron', expression),
+  },
+
+  // Schedule event listeners
+  onScheduleOutput: (callback) => {
+    ipcRenderer.on('schedule-output', (_event, data) => callback(data));
+  },
+  offScheduleOutput: () => {
+    ipcRenderer.removeAllListeners('schedule-output');
+  },
+  onScheduleComplete: (callback) => {
+    ipcRenderer.on('schedule-complete', (_event, data) => callback(data));
+  },
+  offScheduleComplete: () => {
+    ipcRenderer.removeAllListeners('schedule-complete');
+  },
+
+  // Telegram operations
+  telegram: {
+    setToken: (token) => ipcRenderer.invoke('telegram:set-token', token),
+    getToken: () => ipcRenderer.invoke('telegram:get-token'),
+    testConnection: (token) => ipcRenderer.invoke('telegram:test-connection', token),
+    startBot: () => ipcRenderer.invoke('telegram:start-bot'),
+    stopBot: () => ipcRenderer.invoke('telegram:stop-bot'),
+    getStatus: () => ipcRenderer.invoke('telegram:get-status'),
+    listLinks: () => ipcRenderer.invoke('telegram:list-links'),
+    createLink: (data) => ipcRenderer.invoke('telegram:create-link', data),
+    deleteLink: (id) => ipcRenderer.invoke('telegram:delete-link', id),
+    toggleLink: (id) => ipcRenderer.invoke('telegram:toggle-link', id),
+  },
+
+  // Telegram event listeners
+  onTelegramActivity: (callback) => {
+    ipcRenderer.on('telegram-activity', (_event, data) => callback(data));
+  },
+  offTelegramActivity: () => {
+    ipcRenderer.removeAllListeners('telegram-activity');
   },
 });
 

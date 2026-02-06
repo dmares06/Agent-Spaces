@@ -430,3 +430,41 @@ export interface SavedCanvas {
   created_at: string;
   updated_at: string;
 }
+
+// Scheduled Task Types
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  description?: string;
+  cron_expression: string;
+  command: string;
+  working_directory?: string;
+  enabled: number;
+  last_run_at?: string;
+  next_run_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduledTaskRun {
+  id: string;
+  scheduled_task_id: string;
+  started_at: string;
+  completed_at?: string;
+  status: 'running' | 'success' | 'failed' | 'cancelled';
+  exit_code?: number;
+  output?: string;
+  error?: string;
+}
+
+// Telegram Integration Types
+export interface TelegramAgentLink {
+  id: string;
+  telegram_chat_id: string;
+  telegram_username?: string;
+  agent_id: string;
+  chat_id?: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}

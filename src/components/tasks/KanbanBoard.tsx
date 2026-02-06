@@ -72,7 +72,7 @@ export default function KanbanBoard({ tasks, onTaskDelete }: KanbanBoardProps) {
   }, {} as Record<Task['status'], Task[]>);
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pb-4">
       {COLUMNS.map((column) => (
         <KanbanColumn
           key={column.id}

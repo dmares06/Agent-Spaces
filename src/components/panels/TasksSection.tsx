@@ -3,7 +3,7 @@ import { electronAPI } from '../../lib/electronAPI';
 import { type Task, type Agent } from '../../lib/types';
 import TaskItem from './TaskItem';
 import KanbanBoard from '../tasks/KanbanBoard';
-import { Filter, LayoutList, LayoutGrid } from 'lucide-react';
+import { Filter, LayoutList, LayoutGrid, Maximize2, Minimize2 } from 'lucide-react';
 
 interface TasksSectionProps {
   workspaceId?: string;
@@ -21,6 +21,7 @@ export default function TasksSection({ workspaceId, chatId, onTaskCountChange }:
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     loadTasks();
@@ -56,6 +57,18 @@ export default function TasksSection({ workspaceId, chatId, onTaskCountChange }:
   useEffect(() => {
     onTaskCountChange?.(tasks.length);
   }, [tasks.length, onTaskCountChange]);
+
+  // Keyboard shortcut for fullscreen
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
   async function loadTasks() {
     try {
@@ -116,6 +129,71 @@ export default function TasksSection({ workspaceId, chatId, onTaskCountChange }:
     }
   }
 
+  // Fullscreen mode
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-50 bg-background flex flex-col">
+        {/* Fullscreen Header */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-muted/30">
+          <div className="flex items-center gap-4">
+            <h3 className="font-semibold text-lg">Workspace Tasks - Fullscreen</h3>
+            <span className="text-sm text-muted-foreground">Press ESC to exit</span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* View Toggle */}
+            <div className="flex items-center gap-1 border border-border rounded">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-3 py-1.5 rounded-l ${viewMode === 'list' ? 'bg-accent/10 text-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                title="List View"
+              >
+                <LayoutList size={16} />
+              </button>
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`px-3 py-1.5 rounded-r ${viewMode === 'kanban' ? 'bg-accent/10 text-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                title="Kanban View"
+              >
+                <LayoutGrid size={16} />
+              </button>
+            </div>
+
+            <button
+              onClick={() => setIsFullscreen(false)}
+              className="p-2 hover:bg-muted rounded"
+              title="Exit Fullscreen"
+            >
+              <Minimize2 size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Fullscreen Content */}
+        <div className="flex-1 overflow-auto p-6">
+          {loading ? (
+            <div className="text-sm text-muted-foreground text-center py-4">
+              Loading tasks...
+            </div>
+          ) : tasks.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-4">
+              No tasks yet
+            </div>
+          ) : viewMode === 'list' ? (
+            <div className="space-y-2">
+              {tasks.map((task) => (
+                <TaskItem key={task.id} task={task} onDelete={handleDelete} />
+              ))}
+            </div>
+          ) : (
+            <KanbanBoard tasks={tasks} onTaskDelete={handleDelete} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Normal panel mode
   return (
     <div className="space-y-3">
       {/* Filter and View Controls */}
@@ -172,6 +250,15 @@ export default function TasksSection({ workspaceId, chatId, onTaskCountChange }:
             <LayoutGrid size={14} />
           </button>
         </div>
+
+        {/* Fullscreen Button */}
+        <button
+          onClick={() => setIsFullscreen(true)}
+          className="p-1 hover:bg-muted rounded"
+          title="Fullscreen Mode"
+        >
+          <Maximize2 size={14} />
+        </button>
       </div>
 
       {/* Tasks List */}

@@ -135,6 +135,20 @@ export async function executeToolLocally(
         };
       }
 
+      // Personal task tool
+      case 'create_personal_task':
+        return await executeCreatePersonalTask(
+          input as {
+            title: string;
+            description?: string;
+            priority?: string;
+            status?: string;
+            due_date?: string;
+          },
+          context,
+          mainWindow
+        );
+
       default:
         return {
           content: JSON.stringify({
@@ -441,4 +455,88 @@ function getMimeType(filePath: string): string {
     '.h': 'text/x-c-header',
   };
   return mimeTypes[ext] || 'application/octet-stream';
+}
+
+/**
+ * Create a personal task on the user's Kanban board
+ */
+async function executeCreatePersonalTask(
+  input: {
+    title: string;
+    description?: string;
+    priority?: string;
+    status?: string;
+    due_date?: string;
+  },
+  context: ToolContext,
+  mainWindow: BrowserWindow | null
+): Promise<ToolResult> {
+  try {
+    const database = db.getDatabase();
+    const id = db.generateId();
+    const timestamp = db.now();
+
+    // Validate and normalize inputs
+    const priority = ['low', 'medium', 'high'].includes(input.priority || '')
+      ? input.priority
+      : 'medium';
+
+    const status = ['todo', 'working', 'completed'].includes(input.status || '')
+      ? input.status
+      : 'todo';
+
+    // Validate due_date format if provided
+    let dueDate: string | null = null;
+    if (input.due_date) {
+      const dateMatch = input.due_date.match(/^\d{4}-\d{2}-\d{2}$/);
+      if (dateMatch) {
+        dueDate = input.due_date;
+      }
+    }
+
+    const stmt = database.prepare(`
+      INSERT INTO personal_tasks (id, title, description, status, priority, due_date, created_at, created_by_agent_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      id,
+      input.title,
+      input.description || null,
+      status,
+      priority,
+      dueDate,
+      timestamp,
+      context.agentId || null
+    );
+
+    const personalTask = database.prepare('SELECT * FROM personal_tasks WHERE id = ?').get(id);
+
+    // Emit real-time update to UI so Kanban board updates immediately
+    if (mainWindow) {
+      mainWindow.webContents.send('personal-task-created', personalTask);
+    }
+
+    return {
+      content: JSON.stringify({
+        success: true,
+        task_id: id,
+        message: `Personal task "${input.title}" added to your Kanban board`,
+        priority,
+        status,
+        due_date: dueDate,
+      }),
+      isError: false,
+    };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[ToolExecutor] Error creating personal task:', error);
+    return {
+      content: JSON.stringify({
+        success: false,
+        error: `Failed to create personal task: ${errorMessage}`,
+      }),
+      isError: true,
+    };
+  }
 }
