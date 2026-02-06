@@ -35,7 +35,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['better-sqlite3', 'node-pty', 'electron-reloader', 'croner', 'grammy'],
+              external: ['better-sqlite3', 'node-pty', 'electron-reloader', 'croner', 'grammy', 'openai'],
               output: {
                 format: 'es',
               },

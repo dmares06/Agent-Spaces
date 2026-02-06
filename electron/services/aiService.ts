@@ -9,6 +9,7 @@ import type { ToolContext } from './toolExecutor.js';
 import * as claudeService from './claudeService.js';
 import * as openaiService from './openaiService.js';
 import * as googleService from './googleService.js';
+import * as openrouterService from './openrouterService.js';
 
 /**
  * Determine which provider to use based on the model
@@ -65,9 +66,7 @@ export async function streamMessage(
       throw new Error('Groq models not yet supported. Coming soon!');
 
     case 'openrouter':
-      // OpenRouter uses OpenAI-compatible API
-      // TODO: Create dedicated openrouterService with OpenRouter endpoint
-      throw new Error('OpenRouter models not yet supported. Coming soon!');
+      return openrouterService.streamMessage(messages, options, callbacks, mainWindow);
 
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -110,7 +109,7 @@ export async function streamMessageWithTools(
       throw new Error('Groq models not yet supported. Coming soon!');
 
     case 'openrouter':
-      throw new Error('OpenRouter models not yet supported. Coming soon!');
+      return openrouterService.streamMessageWithTools(messages, options, toolContext, callbacks, mainWindow);
 
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -153,7 +152,7 @@ export async function sendMessage(
 /**
  * Test connection for a specific provider
  */
-export async function testConnection(provider: 'anthropic' | 'openai' | 'google'): Promise<boolean> {
+export async function testConnection(provider: 'anthropic' | 'openai' | 'google' | 'openrouter'): Promise<boolean> {
   console.log('[AI Service] Testing connection for provider:', provider);
 
   switch (provider) {
@@ -166,6 +165,9 @@ export async function testConnection(provider: 'anthropic' | 'openai' | 'google'
     case 'google':
       return googleService.testConnection();
 
+    case 'openrouter':
+      return openrouterService.testConnection();
+
     default:
       return false;
   }
@@ -174,7 +176,7 @@ export async function testConnection(provider: 'anthropic' | 'openai' | 'google'
 /**
  * Reset client for a specific provider (call when API key changes)
  */
-export function resetClient(provider: 'anthropic' | 'openai' | 'google'): void {
+export function resetClient(provider: 'anthropic' | 'openai' | 'google' | 'openrouter'): void {
   console.log('[AI Service] Resetting client for provider:', provider);
 
   switch (provider) {
@@ -189,13 +191,17 @@ export function resetClient(provider: 'anthropic' | 'openai' | 'google'): void {
     case 'google':
       googleService.resetClient();
       break;
+
+    case 'openrouter':
+      openrouterService.resetClient();
+      break;
   }
 }
 
 /**
  * Get or initialize client for a specific provider
  */
-export function getClient(provider: 'anthropic' | 'openai' | 'google'): any {
+export function getClient(provider: 'anthropic' | 'openai' | 'google' | 'openrouter'): any {
   switch (provider) {
     case 'anthropic':
       return claudeService.getClient();
@@ -205,6 +211,9 @@ export function getClient(provider: 'anthropic' | 'openai' | 'google'): any {
 
     case 'google':
       return googleService.getClient();
+
+    case 'openrouter':
+      return openrouterService.getClient();
 
     default:
       return null;

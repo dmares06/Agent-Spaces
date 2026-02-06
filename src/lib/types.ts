@@ -219,7 +219,11 @@ export type ModelOption =
   | 'llama-3.1-8b'
   | 'mixtral-8x7b'
   // OpenRouter (Multi-provider)
-  | 'openrouter/auto';
+  | 'openrouter/auto'
+  | 'openrouter/google/gemini-2.5-pro'
+  | 'openrouter/deepseek/deepseek-chat-v3'
+  | 'openrouter/meta-llama/llama-4-maverick'
+  | 'openrouter/mistralai/mistral-large';
 
 export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'groq' | 'openrouter';
 
@@ -358,6 +362,38 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     id: 'openrouter/auto',
     name: 'OpenRouter Auto',
     description: 'Auto-select best available model',
+    provider: 'openrouter',
+    supportsThinking: false,
+    requiresApiKey: 'openrouter_api_key',
+  },
+  {
+    id: 'openrouter/google/gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
+    description: 'Google Gemini 2.5 Pro via OpenRouter',
+    provider: 'openrouter',
+    supportsThinking: false,
+    requiresApiKey: 'openrouter_api_key',
+  },
+  {
+    id: 'openrouter/deepseek/deepseek-chat-v3',
+    name: 'DeepSeek V3',
+    description: 'DeepSeek Chat V3 via OpenRouter',
+    provider: 'openrouter',
+    supportsThinking: false,
+    requiresApiKey: 'openrouter_api_key',
+  },
+  {
+    id: 'openrouter/meta-llama/llama-4-maverick',
+    name: 'Llama 4 Maverick',
+    description: 'Meta Llama 4 Maverick via OpenRouter',
+    provider: 'openrouter',
+    supportsThinking: false,
+    requiresApiKey: 'openrouter_api_key',
+  },
+  {
+    id: 'openrouter/mistralai/mistral-large',
+    name: 'Mistral Large',
+    description: 'Mistral Large via OpenRouter',
     provider: 'openrouter',
     supportsThinking: false,
     requiresApiKey: 'openrouter_api_key',

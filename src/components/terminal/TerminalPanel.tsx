@@ -234,7 +234,7 @@ export default function TerminalPanel({
           </button>
 
           {showDropdown && (
-            <div className="absolute right-0 top-full mt-1 bg-[#2a2a2a] border border-[#404040] rounded-lg shadow-xl z-50 min-w-[180px] py-1">
+            <div className="absolute right-0 bottom-full mb-1 bg-[#2a2a2a] border border-[#404040] rounded-lg shadow-xl z-50 min-w-[180px] py-1">
               <div className="px-2 py-1 text-[10px] text-[#666] uppercase tracking-wider">
                 Launch Terminal
               </div>
