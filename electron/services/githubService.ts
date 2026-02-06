@@ -1,5 +1,7 @@
 import { Octokit } from '@octokit/rest';
 import simpleGit from 'simple-git';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as db from '../database/db.js';
 
 let octokit: Octokit | null = null;
@@ -74,13 +76,50 @@ export async function cloneRepo(
       cloneUrl = repoUrl.replace('https://github.com', `https://${token}@github.com`);
     }
 
-    console.log('[GitHub] Cloning repo to:', targetPath);
+    // Validate that targetPath is a local filesystem path, not a URL
+    if (/^[a-zA-Z]+:\/\//.test(targetPath)) {
+      return { success: false, error: 'Target folder must be a local path (e.g., /Users/you/Projects/repo), not a URL.' };
+    }
+
+    // Derive repo name and compute final target
+    const repoName = repoUrl
+      .replace(/\.git$/, '')
+      .split('/')
+      .filter(Boolean)
+      .pop() || 'repository';
+
+    let finalTarget = targetPath;
+    try {
+      if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
+        // If user selected an existing directory (e.g., a parent folder), clone into a new subfolder
+        finalTarget = path.join(targetPath, repoName);
+      } else {
+        // Ensure parent directory exists when target is a new path
+        const parent = path.dirname(targetPath);
+        if (parent && !fs.existsSync(parent)) {
+          fs.mkdirSync(parent, { recursive: true });
+        }
+      }
+    } catch (e) {
+      // Fall back to the provided path if FS checks fail
+      finalTarget = targetPath;
+    }
+
+    // Prevent cloning into a non-empty existing directory
+    if (fs.existsSync(finalTarget) && fs.statSync(finalTarget).isDirectory()) {
+      const entries = fs.readdirSync(finalTarget);
+      if (entries.length > 0) {
+        return { success: false, error: `Target folder already exists and is not empty: ${finalTarget}` };
+      }
+    }
+
+    console.log('[GitHub] Cloning repo:', cloneUrl, '→', finalTarget);
 
     const git = simpleGit();
-    await git.clone(cloneUrl, targetPath);
+    await git.clone(cloneUrl, finalTarget);
 
     console.log('[GitHub] Clone successful');
-    return { success: true, path: targetPath };
+    return { success: true, path: finalTarget };
   } catch (error: any) {
     console.error('[GitHub] Clone failed:', error.message);
     return { success: false, error: error.message };
@@ -143,4 +182,64 @@ export async function listRepos(): Promise<{ success: boolean; repos?: Array<{ n
   } catch (error: any) {
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * Lightweight Git helpers for local repos (status/commit/push)
+ */
+export async function gitStatus(repoPath: string): Promise<{
+  success: boolean;
+  isRepo?: boolean;
+  status?: any;
+  error?: string;
+}> {
+  try {
+    const git = simpleGit({ baseDir: repoPath });
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) return { success: true, isRepo: false };
+    const status = await git.status();
+    return { success: true, isRepo: true, status };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function gitCommit(repoPath: string, message: string): Promise<{
+  success: boolean;
+  commitId?: string;
+  error?: string;
+}> {
+  try {
+    const git = simpleGit({ baseDir: repoPath });
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) return { success: false, error: 'Not a git repository' };
+
+    // Stage all changes and commit
+    await git.add('.');
+    const result = await git.commit(message || 'Update');
+    return { success: true, commitId: result.commit }; 
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function gitPush(repoPath: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const git = simpleGit({ baseDir: repoPath });
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) return { success: false, error: 'Not a git repository' };
+
+    await git.push();
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function gitCommitAndPush(repoPath: string, message: string): Promise<{ success: boolean; commitId?: string; error?: string }> {
+  const commit = await gitCommit(repoPath, message);
+  if (!commit.success) return commit;
+  const push = await gitPush(repoPath);
+  if (!push.success) return { success: false, error: push.error };
+  return { success: true, commitId: commit.commitId };
 }

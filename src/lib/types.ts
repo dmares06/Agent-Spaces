@@ -223,7 +223,9 @@ export type ModelOption =
   | 'openrouter/google/gemini-2.5-pro'
   | 'openrouter/deepseek/deepseek-chat-v3'
   | 'openrouter/meta-llama/llama-4-maverick'
-  | 'openrouter/mistralai/mistral-large';
+  | 'openrouter/mistralai/mistral-large'
+  // OpenRouter (OpenAI experimental/cutting-edge)
+  | 'openrouter/openai/gpt-5.3-codex';
 
 export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'groq' | 'openrouter';
 
@@ -398,6 +400,14 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     supportsThinking: false,
     requiresApiKey: 'openrouter_api_key',
   },
+  {
+    id: 'openrouter/openai/gpt-5.3-codex',
+    name: 'GPT-5.3 Codex (OpenRouter)',
+    description: 'Routes to OpenAI gpt-5.3-codex via OpenRouter (if available)',
+    provider: 'openrouter',
+    supportsThinking: false,
+    requiresApiKey: 'openrouter_api_key',
+  },
 ];
 
 // Dual Chat Types
@@ -475,6 +485,9 @@ export interface ScheduledTask {
   cron_expression: string;
   command: string;
   working_directory?: string;
+  type?: string;              // 'command' | 'agent' — defaults to 'command'
+  agent_id?: string;          // Agent to run when type is 'agent'
+  workspace_id?: string;      // Workspace context for agent execution
   enabled: number;
   last_run_at?: string;
   next_run_at?: string;
@@ -491,6 +504,35 @@ export interface ScheduledTaskRun {
   exit_code?: number;
   output?: string;
   error?: string;
+}
+
+// Knowledge Store Types (Dash-inspired)
+export interface KnowledgeEntry {
+  id: string;
+  workspace_id: string;
+  agent_id?: string;
+  category: string;           // 'competitor_intel' | 'community_pain_point' | 'trending_topic' | 'content_idea' | 'engagement_insight'
+  title: string;
+  content: string;
+  source?: string;            // URL or description of source
+  confidence: number;         // 0-100
+  tags?: string;              // JSON array
+  expires_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeLearning {
+  id: string;
+  workspace_id: string;
+  agent_id?: string;
+  trigger: string;            // What situation triggered this learning
+  lesson: string;             // What was learned
+  action: string;             // What to do differently
+  success_count: number;
+  failure_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Telegram Integration Types

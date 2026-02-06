@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { electronAPI } from '../lib/electronAPI';
 import type { Workspace, Agent, Chat, OpenFile } from '../lib/types';
 import ChatPanel from '../components/chat/ChatPanel';
@@ -54,6 +54,7 @@ export default function WorkspacePage() {
   const [canvasHeight, setCanvasHeight] = useState(400);
   const [showPersonalTasks, setShowPersonalTasks] = useState(false);
   const [personalTasksHeight, setPersonalTasksHeight] = useState(400);
+  const restoredUIRef = useRef(false);
 
   // Terminal keyboard shortcut (Ctrl+`)
   useEffect(() => {
@@ -68,7 +69,10 @@ export default function WorkspacePage() {
   }, []);
 
   useEffect(() => {
-    loadWorkspaces();
+    (async () => {
+      await loadWorkspaces();
+      await restoreUIState();
+    })();
     loadGlobalAgents();
     loadGlobalChats();
     checkApiKey();
@@ -97,6 +101,14 @@ export default function WorkspacePage() {
       setChats([]);
     }
   }, [activeWorkspace]);
+
+  // When switching or restoring an active workspace, load its previously open files
+  useEffect(() => {
+    if (activeWorkspace?.id) {
+      loadWorkspaceOpenFiles(activeWorkspace.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspace?.id]);
 
   // Listen for chat updates (status, flag changes)
   useEffect(() => {
@@ -131,6 +143,26 @@ export default function WorkspacePage() {
       console.error('Failed to load workspaces:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function restoreUIState() {
+    if (restoredUIRef.current) return;
+    try {
+      const savedOpen = await electronAPI.settings.get('ui:open_workspaces');
+      const savedActive = await electronAPI.settings.get('ui:active_workspace');
+      if (savedOpen) {
+        const ids: string[] = JSON.parse(savedOpen);
+        setOpenWorkspaceIds(ids.filter((id) => workspaces.find((w) => w.id === id)));
+      }
+      if (savedActive) {
+        const ws = workspaces.find((w) => w.id === savedActive);
+        if (ws) setActiveWorkspace(ws);
+      }
+    } catch (e) {
+      // ignore restore errors
+    } finally {
+      restoredUIRef.current = true;
     }
   }
 
@@ -186,6 +218,7 @@ export default function WorkspacePage() {
         setOpenWorkspaceIds((prev) =>
           prev.includes(result.workspace.id) ? prev : [...prev, result.workspace.id]
         );
+        await loadWorkspaceOpenFiles(result.workspace.id);
       }
     } catch (error) {
       console.error('Failed to import folder:', error);
@@ -204,6 +237,7 @@ export default function WorkspacePage() {
       setOpenWorkspaceIds((prev) =>
         prev.includes(workspace.id) ? prev : [...prev, workspace.id]
       );
+      await loadWorkspaceOpenFiles(workspace.id);
     } catch (error) {
       console.error('Failed to create workspace:', error);
     }
@@ -335,6 +369,8 @@ export default function WorkspacePage() {
       setOpenWorkspaceIds((prev) =>
         prev.includes(workspaceId) ? prev : [...prev, workspaceId]
       );
+      // Load saved open files for this workspace
+      loadWorkspaceOpenFiles(workspace.id);
     }
   }
 
@@ -544,6 +580,72 @@ export default function WorkspacePage() {
       console.log('[WorkspacePage] File saved:', activeFile.path);
     } catch (error) {
       console.error('Failed to save file:', error);
+    }
+  }
+
+  // Persist open workspaces, active workspace, and open files per workspace
+  useEffect(() => {
+    (async () => {
+      try {
+        await electronAPI.settings.set('ui:open_workspaces', JSON.stringify(openWorkspaceIds));
+      } catch {
+        // ignore
+      }
+    })();
+  }, [openWorkspaceIds]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await electronAPI.settings.set('ui:active_workspace', activeWorkspace?.id || '');
+      } catch {
+        // ignore
+      }
+    })();
+  }, [activeWorkspace?.id]);
+
+  useEffect(() => {
+    (async () => {
+      if (!activeWorkspace) return;
+      try {
+        const state = {
+          openFilePaths: openFiles.map((f) => f.path),
+          activeFilePath,
+        };
+        await electronAPI.settings.set(`workspace_state:${activeWorkspace.id}`, JSON.stringify(state));
+      } catch {
+        // ignore
+      }
+    })();
+  }, [openFiles, activeFilePath, activeWorkspace?.id]);
+
+  async function loadWorkspaceOpenFiles(workspaceId: string) {
+    try {
+      // Clear current open files when switching
+      setOpenFiles([]);
+      setActiveFilePath(null);
+
+      const raw = await electronAPI.settings.get(`workspace_state:${workspaceId}`);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { openFilePaths?: string[]; activeFilePath?: string };
+      if (parsed.openFilePaths && parsed.openFilePaths.length > 0) {
+        for (const p of parsed.openFilePaths) {
+          const name = p.split('/').pop() || p;
+          try {
+            const content = await electronAPI.files.readFile(p);
+            const language = detectLanguage(name);
+            setOpenFiles((prev) => [
+              ...prev,
+              { path: p, name, content, originalContent: content, language, isDirty: false },
+            ]);
+          } catch {
+            // ignore file read failures
+          }
+        }
+        if (parsed.activeFilePath) setActiveFilePath(parsed.activeFilePath);
+      }
+    } catch {
+      // ignore
     }
   }
 

@@ -90,6 +90,12 @@ export interface ElectronAPI {
     createPR: (options: PROptions) => Promise<{ success: boolean; url?: string; number?: number; error?: string }>;
     listRepos: () => Promise<{ success: boolean; repos?: Array<{ name: string; full_name: string; private: boolean; clone_url: string }>; error?: string }>;
   };
+  git: {
+    status: (repoPath: string) => Promise<{ success: boolean; isRepo?: boolean; status?: any; error?: string }>;
+    commit: (repoPath: string, message: string) => Promise<{ success: boolean; commitId?: string; error?: string }>;
+    push: (repoPath: string) => Promise<{ success: boolean; error?: string }>;
+    commitAndPush: (repoPath: string, message: string) => Promise<{ success: boolean; commitId?: string; error?: string }>;
+  };
   hook: {
     list: (workspaceId: string) => Promise<any[]>;
     create: (data: any) => Promise<any>;

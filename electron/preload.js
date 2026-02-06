@@ -107,6 +107,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listRepos: () => ipcRenderer.invoke('github:list-repos'),
   },
 
+  // Local Git operations
+  git: {
+    status: (repoPath) => ipcRenderer.invoke('git:status', repoPath),
+    commit: (repoPath, message) => ipcRenderer.invoke('git:commit', repoPath, message),
+    push: (repoPath) => ipcRenderer.invoke('git:push', repoPath),
+    commitAndPush: (repoPath, message) => ipcRenderer.invoke('git:commit-and-push', repoPath, message),
+  },
+
   // Hook operations
   hook: {
     list: (workspaceId) => ipcRenderer.invoke('hook:list', workspaceId),

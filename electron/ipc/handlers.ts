@@ -10,6 +10,8 @@ import * as githubService from '../services/githubService.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import * as schedulerService from '../services/schedulerService.js';
 import * as telegramService from '../services/telegramService.js';
+import * as githubService2 from '../services/githubService.js';
+import * as agentRunnerService from '../services/agentRunnerService.js';
 
 export function registerHandlers() {
   console.log('[IPC] Registering handlers');
@@ -683,6 +685,43 @@ Take screenshots to show your progress.`;
       return await githubService.listRepos();
     } catch (error: any) {
       console.error('[IPC] github:list-repos error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ===== Git (local) Handlers =====
+  ipcMain.handle('git:status', async (_event, repoPath: string) => {
+    try {
+      return await githubService2.gitStatus(repoPath);
+    } catch (error: any) {
+      console.error('[IPC] git:status error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('git:commit', async (_event, repoPath: string, message: string) => {
+    try {
+      return await githubService2.gitCommit(repoPath, message);
+    } catch (error: any) {
+      console.error('[IPC] git:commit error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('git:push', async (_event, repoPath: string) => {
+    try {
+      return await githubService2.gitPush(repoPath);
+    } catch (error: any) {
+      console.error('[IPC] git:push error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('git:commit-and-push', async (_event, repoPath: string, message: string) => {
+    try {
+      return await githubService2.gitCommitAndPush(repoPath, message);
+    } catch (error: any) {
+      console.error('[IPC] git:commit-and-push error:', error);
       return { success: false, error: error.message };
     }
   });
@@ -2163,6 +2202,82 @@ Take screenshots to show your progress.`;
       return telegramService.toggleLink(id);
     } catch (error: any) {
       console.error('[IPC] telegram:toggle-link error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  // ===== Knowledge Store Handlers =====
+
+  ipcMain.handle('knowledge:list', async (_event, workspaceId: string, filters?: {
+    category?: string;
+    agent_id?: string;
+    limit?: number;
+  }) => {
+    try {
+      return db.getKnowledgeEntries(workspaceId, filters);
+    } catch (error: any) {
+      console.error('[IPC] knowledge:list error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('knowledge:create', async (_event, data: {
+    workspace_id: string;
+    agent_id?: string;
+    category: string;
+    title: string;
+    content: string;
+    source?: string;
+    confidence?: number;
+    tags?: string;
+    expires_at?: string;
+  }) => {
+    try {
+      return db.createKnowledgeEntry(data);
+    } catch (error: any) {
+      console.error('[IPC] knowledge:create error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('knowledge:delete', async (_event, id: string) => {
+    try {
+      db.deleteKnowledgeEntry(id);
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] knowledge:delete error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  ipcMain.handle('knowledge:learnings', async (_event, workspaceId: string, agentId?: string) => {
+    try {
+      return db.getKnowledgeLearnings(workspaceId, agentId);
+    } catch (error: any) {
+      console.error('[IPC] knowledge:learnings error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  // ===== Agent Runner Handlers =====
+
+  ipcMain.handle('agent-runner:run', async (_event, agentId: string, workspaceId: string, triggerContext?: string) => {
+    try {
+      return await agentRunnerService.runAgent(agentId, workspaceId, triggerContext);
+    } catch (error: any) {
+      console.error('[IPC] agent-runner:run error:', error);
+      throw new Error(error.message);
+    }
+  });
+
+  // ===== Footy Lab Seed Handler =====
+
+  ipcMain.handle('footy-lab:seed-agents', async (_event, workspaceId: string) => {
+    try {
+      db.seedFootyLabAgents(workspaceId);
+      return { success: true };
+    } catch (error: any) {
+      console.error('[IPC] footy-lab:seed-agents error:', error);
       throw new Error(error.message);
     }
   });

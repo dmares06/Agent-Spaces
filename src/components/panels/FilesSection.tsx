@@ -2,6 +2,7 @@ import { useState } from 'react';
 import ContextFiles from './ContextFiles';
 import WorkingDirectory from './WorkingDirectory';
 import EnhancedFileTree from './EnhancedFileTree';
+import GitQuickActions from '../git/GitQuickActions';
 
 interface FilesSectionProps {
   chatId?: string;
@@ -46,13 +47,16 @@ export default function FilesSection({ chatId, workspacePath, onFileCountChange,
       {activeSubTab === 'context' ? (
         <ContextFiles chatId={chatId} onFileCountChange={onFileCountChange} />
       ) : (
-        <div className="h-[calc(100vh-400px)] min-h-[400px]">
-          <EnhancedFileTree
-            workspacePath={workspacePath}
-            onFileOpen={onFileOpen}
-            onWorkspacePathChange={onWorkspacePathChange}
-          />
-        </div>
+        <>
+          <div className="h-[calc(100vh-480px)] min-h-[360px]">
+            <EnhancedFileTree
+              workspacePath={workspacePath}
+              onFileOpen={onFileOpen}
+              onWorkspacePathChange={onWorkspacePathChange}
+            />
+          </div>
+          <GitQuickActions repoPath={workspacePath} />
+        </>
       )}
     </div>
   );

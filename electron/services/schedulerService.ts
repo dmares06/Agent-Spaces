@@ -2,6 +2,7 @@ import { Cron } from 'croner';
 import { spawn, ChildProcess } from 'child_process';
 import { BrowserWindow } from 'electron';
 import * as db from '../database/db.js';
+import * as agentRunnerService from './agentRunnerService.js';
 
 // Store active cron jobs
 const activeJobs = new Map<string, Cron>();
@@ -109,6 +110,68 @@ export async function executeTask(taskId: string): Promise<db.ScheduledTaskRun> 
     });
   }
 
+  // Branch: Agent-type tasks run via agentRunnerService
+  if (task.type === 'agent' && task.agent_id) {
+    try {
+      const result = await agentRunnerService.runAgent(
+        task.agent_id,
+        task.workspace_id || '',
+        `Scheduled execution of "${task.name}"`
+      );
+
+      const completedAt = new Date().toISOString();
+      const summary = `Agent: ${result.agentName}\nKnowledge entries: ${result.knowledgeEntries.length}\nLearnings: ${result.learnings.length}${result.error ? `\nError: ${result.error}` : ''}`;
+
+      const updatedRun = db.updateScheduledTaskRun(run.id, {
+        status: result.error ? 'failed' : 'success',
+        exit_code: result.error ? 1 : 0,
+        output: `${summary}\n\n---\n\n${result.output.slice(-100000)}`,
+        error: result.error || undefined,
+        completed_at: completedAt,
+      });
+
+      console.log(`[Scheduler] Agent task "${task.name}" completed. Entries: ${result.knowledgeEntries.length}, Learnings: ${result.learnings.length}`);
+
+      if (mainWindow) {
+        mainWindow.webContents.send('schedule-output', {
+          taskId,
+          runId: run.id,
+          type: 'stdout',
+          data: summary,
+        });
+        mainWindow.webContents.send('schedule-complete', {
+          taskId,
+          runId: run.id,
+          status: result.error ? 'failed' : 'success',
+          exitCode: result.error ? 1 : 0,
+        });
+      }
+
+      return updatedRun;
+    } catch (err: any) {
+      const completedAt = new Date().toISOString();
+      const updatedRun = db.updateScheduledTaskRun(run.id, {
+        status: 'failed',
+        error: err.message,
+        completed_at: completedAt,
+      });
+
+      console.error(`[Scheduler] Agent task "${task.name}" failed:`, err);
+
+      if (mainWindow) {
+        mainWindow.webContents.send('schedule-complete', {
+          taskId,
+          runId: run.id,
+          status: 'failed',
+          error: err.message,
+        });
+      }
+
+      return updatedRun;
+    }
+  }
+
+  // Default: Shell command execution (unchanged)
   return new Promise((resolve) => {
     const workingDir = task.working_directory || process.env.HOME || '/';
 

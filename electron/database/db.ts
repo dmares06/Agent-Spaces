@@ -581,6 +581,90 @@ function runMigrations(database: Database.Database): void {
     }
   }
 
+  // Migration 6: Knowledge Store + Agent Scheduler Extension (v6)
+  if (currentVersion < 6) {
+    console.log('[DB] Running migration 6: Knowledge Store + Agent Scheduler');
+
+    try {
+      // Create knowledge_entries table
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge_entries (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          agent_id TEXT,
+          category TEXT NOT NULL,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT,
+          confidence INTEGER DEFAULT 50,
+          tags TEXT,
+          expires_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+          FOREIGN KEY (agent_id) REFERENCES agents(id)
+        )
+      `);
+      console.log('[DB] Created knowledge_entries table');
+
+      // Create knowledge_learnings table
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge_learnings (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          agent_id TEXT,
+          trigger TEXT NOT NULL,
+          lesson TEXT NOT NULL,
+          action TEXT NOT NULL,
+          success_count INTEGER DEFAULT 0,
+          failure_count INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+          FOREIGN KEY (agent_id) REFERENCES agents(id)
+        )
+      `);
+      console.log('[DB] Created knowledge_learnings table');
+
+      // Extend scheduled_tasks for agent execution
+      const scheduledTasksInfo = database.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+      const stColumns = scheduledTasksInfo.map(col => col.name);
+
+      if (!stColumns.includes('type')) {
+        database.exec("ALTER TABLE scheduled_tasks ADD COLUMN type TEXT DEFAULT 'command'");
+        console.log('[DB] Added type column to scheduled_tasks');
+      }
+      if (!stColumns.includes('agent_id')) {
+        database.exec('ALTER TABLE scheduled_tasks ADD COLUMN agent_id TEXT');
+        console.log('[DB] Added agent_id column to scheduled_tasks');
+      }
+      if (!stColumns.includes('workspace_id')) {
+        database.exec('ALTER TABLE scheduled_tasks ADD COLUMN workspace_id TEXT');
+        console.log('[DB] Added workspace_id column to scheduled_tasks');
+      }
+
+      // Create indexes
+      database.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_entries_workspace ON knowledge_entries(workspace_id)');
+      database.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_entries_category ON knowledge_entries(category)');
+      database.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_entries_agent ON knowledge_entries(agent_id)');
+      database.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_learnings_workspace ON knowledge_learnings(workspace_id)');
+      database.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_learnings_agent ON knowledge_learnings(agent_id)');
+      console.log('[DB] Created knowledge indexes');
+
+      // Set schema version
+      const timestamp = now();
+      const setStmt = database.prepare(`
+        INSERT INTO settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
+      `);
+      setStmt.run('schema_version', '6', timestamp, '6', timestamp);
+      console.log('[DB] Migration 6 completed successfully');
+    } catch (error) {
+      console.error('[DB] Migration 6 failed:', error);
+    }
+  }
+
   console.log('[DB] All migrations completed');
 }
 
@@ -1602,6 +1686,9 @@ export interface ScheduledTask {
   cron_expression: string;
   command: string;
   working_directory?: string;
+  type?: string;              // 'command' | 'agent'
+  agent_id?: string;
+  workspace_id?: string;
   enabled: number;
   last_run_at?: string;
   next_run_at?: string;
@@ -1847,4 +1934,371 @@ export function toggleTelegramAgentLink(id: string): TelegramAgentLink {
   const stmt = db.prepare('UPDATE telegram_agent_links SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END, updated_at = ? WHERE id = ?');
   stmt.run(now(), id);
   return getTelegramAgentLink(id)!;
+}
+
+// ===== Knowledge Store Operations =====
+
+import type { KnowledgeEntry, KnowledgeLearning } from '../../src/lib/types';
+
+export function createKnowledgeEntry(entry: Omit<KnowledgeEntry, 'id' | 'created_at' | 'updated_at'>): KnowledgeEntry {
+  const db = getDatabase();
+  const id = generateId();
+  const timestamp = now();
+
+  const stmt = db.prepare(`
+    INSERT INTO knowledge_entries (id, workspace_id, agent_id, category, title, content, source, confidence, tags, expires_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    id,
+    entry.workspace_id,
+    entry.agent_id || null,
+    entry.category,
+    entry.title,
+    entry.content,
+    entry.source || null,
+    entry.confidence ?? 50,
+    entry.tags || null,
+    entry.expires_at || null,
+    timestamp,
+    timestamp
+  );
+
+  return getKnowledgeEntry(id)!;
+}
+
+export function getKnowledgeEntry(id: string): KnowledgeEntry | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM knowledge_entries WHERE id = ?');
+  return stmt.get(id) as KnowledgeEntry | null;
+}
+
+export function getKnowledgeEntries(workspaceId: string, filters?: {
+  category?: string;
+  agent_id?: string;
+  limit?: number;
+}): KnowledgeEntry[] {
+  const db = getDatabase();
+  let query = 'SELECT * FROM knowledge_entries WHERE workspace_id = ?';
+  const params: any[] = [workspaceId];
+
+  if (filters?.category) {
+    query += ' AND category = ?';
+    params.push(filters.category);
+  }
+  if (filters?.agent_id) {
+    query += ' AND agent_id = ?';
+    params.push(filters.agent_id);
+  }
+
+  // Exclude expired entries
+  query += ' AND (expires_at IS NULL OR expires_at > ?)';
+  params.push(now());
+
+  query += ' ORDER BY created_at DESC';
+
+  if (filters?.limit) {
+    query += ' LIMIT ?';
+    params.push(filters.limit);
+  }
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params) as KnowledgeEntry[];
+}
+
+export function deleteKnowledgeEntry(id: string): void {
+  const db = getDatabase();
+  const stmt = db.prepare('DELETE FROM knowledge_entries WHERE id = ?');
+  stmt.run(id);
+}
+
+export function createKnowledgeLearning(learning: Omit<KnowledgeLearning, 'id' | 'created_at' | 'updated_at'>): KnowledgeLearning {
+  const db = getDatabase();
+  const id = generateId();
+  const timestamp = now();
+
+  const stmt = db.prepare(`
+    INSERT INTO knowledge_learnings (id, workspace_id, agent_id, trigger, lesson, action, success_count, failure_count, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    id,
+    learning.workspace_id,
+    learning.agent_id || null,
+    learning.trigger,
+    learning.lesson,
+    learning.action,
+    learning.success_count ?? 0,
+    learning.failure_count ?? 0,
+    timestamp,
+    timestamp
+  );
+
+  return getKnowledgeLearning(id)!;
+}
+
+export function getKnowledgeLearning(id: string): KnowledgeLearning | null {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT * FROM knowledge_learnings WHERE id = ?');
+  return stmt.get(id) as KnowledgeLearning | null;
+}
+
+export function getKnowledgeLearnings(workspaceId: string, agentId?: string): KnowledgeLearning[] {
+  const db = getDatabase();
+  let query = 'SELECT * FROM knowledge_learnings WHERE workspace_id = ?';
+  const params: any[] = [workspaceId];
+
+  if (agentId) {
+    query += ' AND agent_id = ?';
+    params.push(agentId);
+  }
+
+  query += ' ORDER BY updated_at DESC';
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params) as KnowledgeLearning[];
+}
+
+export function updateKnowledgeLearning(id: string, updates: Partial<Pick<KnowledgeLearning, 'success_count' | 'failure_count' | 'lesson' | 'action'>>): KnowledgeLearning {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  Object.entries(updates).forEach(([key, value]) => {
+    if (value !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+  });
+
+  if (fields.length > 0) {
+    fields.push('updated_at = ?');
+    values.push(now());
+    values.push(id);
+
+    const stmt = db.prepare(`UPDATE knowledge_learnings SET ${fields.join(', ')} WHERE id = ?`);
+    stmt.run(...values);
+  }
+
+  return getKnowledgeLearning(id)!;
+}
+
+export function getKnowledgeForAgent(workspaceId: string, categories?: string[], limit: number = 20): KnowledgeEntry[] {
+  const db = getDatabase();
+  let query = 'SELECT * FROM knowledge_entries WHERE workspace_id = ?';
+  const params: any[] = [workspaceId];
+
+  // Exclude expired entries
+  query += ' AND (expires_at IS NULL OR expires_at > ?)';
+  params.push(now());
+
+  if (categories && categories.length > 0) {
+    const placeholders = categories.map(() => '?').join(', ');
+    query += ` AND category IN (${placeholders})`;
+    params.push(...categories);
+  }
+
+  query += ' ORDER BY confidence DESC, created_at DESC LIMIT ?';
+  params.push(limit);
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params) as KnowledgeEntry[];
+}
+
+// ===== Footy Lab Agent Seeding =====
+
+export function seedFootyLabAgents(workspaceId: string): void {
+  const db = getDatabase();
+
+  // Check if agents already exist for this workspace with footy-lab-swarm category
+  const existing = db.prepare(
+    "SELECT COUNT(*) as count FROM agents WHERE workspace_id = ? AND category = 'footy-lab-swarm'"
+  ).get(workspaceId) as { count: number };
+
+  if (existing.count > 0) {
+    console.log('[DB] Footy Lab agents already seeded for workspace:', workspaceId);
+    return;
+  }
+
+  console.log('[DB] Seeding Footy Lab agents for workspace:', workspaceId);
+  const timestamp = now();
+
+  const agents = [
+    {
+      name: 'Footy Lab Listener',
+      description: 'Reddit/forum intelligence gatherer for Footy Lab. Scans soccer communities for pain points, trending topics, and engagement opportunities.',
+      category: 'footy-lab-swarm',
+      model: 'claude-sonnet-4.5',
+      system_prompt: `You are the Footy Lab Listener — an intelligence-gathering agent that monitors Reddit and soccer forums for actionable insights.
+
+## Your Mission
+Scan soccer communities to identify:
+- Training frustrations and pain points players express
+- Gear questions and product discussions
+- Coaching methodology debates
+- "How do I improve?" posts and common struggles
+- Trending topics and viral discussions
+
+## Target Communities
+- r/bootroom (soccer training & improvement)
+- r/soccer (general soccer discussion)
+- r/footballtactics (tactical analysis)
+- r/soccercoaching (coaching strategies)
+
+## Reddit Playbook Strategy
+- Act like a normal, helpful community member — NOT a marketer
+- 95% pure value, 5% product mention (only when genuinely relevant)
+- Study what types of posts get engagement vs. ignored
+- Track recurring questions that indicate market gaps
+
+## Output Format
+For each finding, output a structured block:
+
+---KNOWLEDGE_ENTRY---
+category: [competitor_intel | community_pain_point | trending_topic | content_idea | engagement_insight]
+title: [Brief descriptive title]
+content: [Detailed description of the finding]
+source: [URL or "r/subreddit - post title"]
+confidence: [0-100, how confident you are this is actionable]
+tags: ["tag1", "tag2", "tag3"]
+---END_ENTRY---
+
+When you discover new patterns about what works or doesn't work, output:
+
+---LEARNING---
+trigger: [What situation you encountered]
+lesson: [What you learned from it]
+action: [What to do differently next time]
+---END_LEARNING---
+
+## Guidelines
+- Focus on QUALITY over quantity — 5 great insights beat 20 mediocre ones
+- Include specific quotes or data points when possible
+- Rate confidence honestly — speculation should be low confidence
+- Tag entries for easy retrieval by other agents
+- Note the engagement level (upvotes, comments) of posts you're analyzing`,
+    },
+    {
+      name: 'Footy Lab Scout',
+      description: 'Competitor researcher scanning soccer training apps, gear brands, and coaching platforms.',
+      category: 'footy-lab-swarm',
+      model: 'claude-sonnet-4.5',
+      system_prompt: `You are the Footy Lab Scout — a competitive intelligence agent that researches soccer training apps, gear brands, and coaching platforms.
+
+## Your Mission
+Monitor and analyze competitors in the soccer training/gear space to identify opportunities, threats, and market gaps.
+
+## Focus Areas
+- Soccer training apps (pricing, features, user reviews)
+- Gear brands (product launches, marketing strategies)
+- Coaching platforms (content, positioning, audience)
+- Market trends and emerging players
+
+## Output Format
+Use ---KNOWLEDGE_ENTRY--- blocks with category "competitor_intel" for findings.
+Use ---LEARNING--- blocks for strategic insights.`,
+    },
+    {
+      name: 'Footy Lab Spotter',
+      description: 'Social media scanner for soccer content trends on Twitter/X, TikTok, and Instagram.',
+      category: 'footy-lab-swarm',
+      model: 'claude-sonnet-4.5',
+      system_prompt: `You are the Footy Lab Spotter — a social media trend scanner that identifies viral soccer content and emerging formats.
+
+## Your Mission
+Track soccer content trends across social platforms to inform Footy Lab's content strategy.
+
+## Platforms
+- Twitter/X (soccer discussions, viral clips)
+- TikTok (training videos, soccer lifestyle content)
+- Instagram (gear showcases, training reels)
+
+## Output Format
+Use ---KNOWLEDGE_ENTRY--- blocks with category "trending_topic" or "content_idea" for findings.
+Use ---LEARNING--- blocks for pattern observations.`,
+    },
+    {
+      name: 'Footy Lab Writer',
+      description: 'Content creator that uses the knowledge store to write Reddit posts, comments, and articles.',
+      category: 'footy-lab-swarm',
+      model: 'claude-sonnet-4.5',
+      system_prompt: `You are the Footy Lab Writer — a content creation agent that produces authentic, valuable soccer content.
+
+## Your Mission
+Using intelligence from the knowledge store, create content that provides genuine value to soccer communities while subtly positioning Footy Lab.
+
+## Content Types
+- Reddit posts and comments (authentic, helpful tone)
+- Blog articles and guides
+- Social media content drafts
+
+## Reddit Playbook
+- 95% value, 5% product (only when genuinely helpful)
+- Match the tone and style of each subreddit
+- Provide actionable advice backed by real knowledge
+
+## Output Format
+Use ---KNOWLEDGE_ENTRY--- blocks with category "content_idea" for drafted content.`,
+    },
+    {
+      name: 'Footy Lab Editor',
+      description: 'Quality gate that reviews Writer output for tone, accuracy, and Reddit playbook compliance.',
+      category: 'footy-lab-swarm',
+      model: 'claude-sonnet-4.5',
+      system_prompt: `You are the Footy Lab Editor — a quality control agent that reviews content before publication.
+
+## Your Mission
+Review content from the Writer agent for:
+- Tone authenticity (does it sound like a real community member?)
+- Accuracy of soccer knowledge
+- Reddit playbook compliance (not too promotional)
+- Engagement potential
+
+## Output Format
+Use ---KNOWLEDGE_ENTRY--- blocks with category "engagement_insight" for review findings.
+Use ---LEARNING--- blocks for editorial pattern observations.`,
+    },
+    {
+      name: 'Footy Lab Orchestrator',
+      description: 'Coordinates the swarm, decides priorities, and triggers other agents based on knowledge store state.',
+      category: 'footy-lab-swarm',
+      model: 'claude-sonnet-4.5',
+      system_prompt: `You are the Footy Lab Orchestrator — the coordination agent that manages the Footy Lab agent swarm.
+
+## Your Mission
+- Review the knowledge store for completeness and freshness
+- Decide which agents need to run and in what order
+- Identify gaps in intelligence coverage
+- Prioritize actions based on business impact
+
+## Output Format
+Use ---KNOWLEDGE_ENTRY--- blocks to log coordination decisions.
+Use ---LEARNING--- blocks for workflow optimization insights.`,
+    },
+  ];
+
+  const insertStmt = db.prepare(`
+    INSERT INTO agents (id, workspace_id, name, description, category, system_prompt, model, thinking_enabled, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const agent of agents) {
+    const id = generateId();
+    insertStmt.run(
+      id,
+      workspaceId,
+      agent.name,
+      agent.description,
+      agent.category,
+      agent.system_prompt,
+      agent.model,
+      0,
+      timestamp
+    );
+    console.log(`[DB] Created Footy Lab agent: ${agent.name} (${id})`);
+  }
+
+  console.log('[DB] Footy Lab agents seeded successfully');
 }
